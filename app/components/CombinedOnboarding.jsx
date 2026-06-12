@@ -779,7 +779,7 @@ function Footer() {
 export default function CombinedOnboarding() {
   // ── Navigation ──
   const [stepIdx, setStepIdx] = useState(0);
-  const [stepList, setStepList] = useState(['contact', 'services']);
+  const [stepList, setStepList] = useState(['intro', 'contact', 'services']);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState(null);
@@ -820,10 +820,16 @@ export default function CombinedOnboarding() {
   const isEmailValid = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 
   const currentStep = stepList[stepIdx];
-  const formSteps = stepList.filter(s => s !== 'contact' && s !== 'services');
-  const totalFormSteps = 2 + formSteps.length; // contact + services + dynamic
-  const currentFormStepNum = stepIdx + 1;
-  const pct = Math.round((stepIdx / (stepList.length - 1)) * 100);
+  const isIntro = currentStep === 'intro';
+  // Exclude 'intro' from step counting — form starts at contact
+  const formStepList = stepList.filter(s => s !== 'intro');
+  const formSteps = formStepList.filter(s => s !== 'contact' && s !== 'services');
+  const totalFormSteps = 2 + formSteps.length;
+  const formStepIdx = stepIdx - 1; // 0-based within form steps (contact = 0)
+  const currentFormStepNum = formStepIdx + 1;
+  const pct = formStepList.length > 1
+    ? Math.round((formStepIdx / (formStepList.length - 1)) * 100)
+    : 0;
 
   const scrollTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 
@@ -831,9 +837,9 @@ export default function CombinedOnboarding() {
   const goBack = () => { setStepIdx(i => i - 1); scrollTop(); };
 
   const confirmServices = () => {
-    const list = buildStepList(services);
+    const list = ['intro', ...buildStepList(services)];
     setStepList(list);
-    setStepIdx(2);
+    setStepIdx(3); // intro(0) → contact(1) → services(2) → first dynamic(3)
     scrollTop();
   };
 
@@ -919,7 +925,7 @@ export default function CombinedOnboarding() {
       </nav>
 
       {/* PROGRESS BAR */}
-      {!submitted && stepIdx >= 0 && (
+      {!submitted && !isIntro && stepIdx > 0 && (
         <div className="bg-white border-b border-[rgba(0,0,0,0.06)] px-[5.6rem] py-[1.4rem] flex-shrink-0 relative z-10">
           <div className="flex justify-between text-[1.2rem] text-[#999999] mb-[0.8rem]">
             <span>Step {currentFormStepNum} of {totalFormSteps}</span>
@@ -932,17 +938,76 @@ export default function CombinedOnboarding() {
       )}
 
       {/* MAIN CARD */}
-      <div className="flex-1 flex items-start justify-center px-[1.5rem] sm:px-[5.6rem] py-[5.2rem] pb-[8rem] relative z-[1]">
+      <div className={`flex-1 flex items-start justify-center px-[1.5rem] sm:px-[5.6rem] pb-[8rem] relative z-[1] ${isIntro ? 'py-[7rem]' : 'py-[5.2rem]'}`}>
         <div className={`bg-white border border-[rgba(0,0,0,0.08)] rounded-[2rem] w-full relative overflow-hidden shadow-[0_2px_40px_rgba(0,0,0,0.06)] ${
-          currentStep === 'support-users' ? 'max-w-[72rem]' : 'max-w-[62rem]'
+          currentStep === 'support-users' ? 'max-w-[72rem]' : isIntro ? 'max-w-[66rem]' : 'max-w-[62rem]'
         }`}
-          style={{ padding: 'clamp(3.2rem, 5vw, 5.2rem) clamp(2.4rem, 5vw, 5.6rem)' }}>
+          style={{ padding: isIntro ? 'clamp(4rem, 6vw, 6.4rem) clamp(3.2rem, 6vw, 7.2rem)' : 'clamp(3.2rem, 5vw, 5.2rem) clamp(2.4rem, 5vw, 5.6rem)' }}>
 
-          {!submitted && (
+          {!submitted && !isIntro && (
             <div className="absolute top-0 left-0 right-0 h-[3px] bg-[#FF6600]" />
           )}
 
           <div key={currentStep + (submitted ? '-success' : '')} className="animate-fade-slide">
+
+            {/* ── INTRO ── */}
+            {currentStep === 'intro' && !submitted && (
+              <div className="text-center">
+                {/* Rainbow top stripe */}
+                <div className="absolute top-0 left-0 right-0 h-[5px] bg-gradient-to-r from-[#FF6600] via-[#FF8C40] to-[#8FD5CC]" />
+
+                {/* Badge */}
+                <div className="inline-flex items-center gap-[0.6rem] border border-[rgba(0,0,0,0.1)] rounded-full px-[1.4rem] py-[0.6rem] mb-[3.2rem]">
+                  <span className="w-[0.7rem] h-[0.7rem] rounded-full bg-[#FF6600] inline-block" />
+                  <span className="text-[1.2rem] tracking-[0.12em] text-[#444] uppercase font-[500]">AceMQ Onboarding</span>
+                </div>
+
+                {/* Headline */}
+                <h1 className="text-[#000000] text-[4rem] leading-[1.15] font-[700] mb-[0.4rem]">
+                  Your AceMQ
+                </h1>
+                <h1 className="text-[#8FD5CC] text-[4rem] leading-[1.15] font-[700] mb-[2.4rem]">
+                  Combined Onboarding
+                </h1>
+
+                {/* Subtitle */}
+                <p className="text-[#666] text-[1.6rem] leading-[1.7] max-w-[46rem] mx-auto mb-[4rem]">
+                  Complete your engagement, support portal, and license setup in a single guided experience. You'll receive a branded PDF report on completion.
+                </p>
+
+                {/* Feature tiles */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-[1.4rem] mb-[4.4rem]">
+                  {[
+                    { icon: '🤝', title: 'Engagement', desc: 'Professional services, migrations & architecture' },
+                    { icon: '🎫', title: 'Support Portal', desc: 'Submit & track RabbitMQ issues 24/7' },
+                    { icon: '🔑', title: 'License Onboarding', desc: 'JFrog image access & portal provisioning' },
+                  ].map(({ icon, title, desc }) => (
+                    <div key={title} className="border border-[rgba(0,0,0,0.08)] rounded-[1.4rem] bg-[#fafafa] px-[2rem] py-[2.4rem] flex flex-col items-center gap-[0.8rem]">
+                      <span className="text-[2.8rem]">{icon}</span>
+                      <p className="text-[1.5rem] font-[700] text-[#161616]">{title}</p>
+                      <p className="text-[1.25rem] text-[#888] leading-[1.5]">{desc}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* CTA */}
+                <BtnOrange onClick={goNext} className="text-[1.9rem] px-[5.6rem] py-[1.6rem]">
+                  Get Started →
+                </BtnOrange>
+
+                {/* Footer pills */}
+                <div className="flex items-center justify-center flex-wrap gap-[2rem] mt-[2.4rem]">
+                  {['~5 minutes', 'PDF report included', 'Select only what you need'].map(t => (
+                    <span key={t} className="flex items-center gap-[0.5rem] text-[1.2rem] text-[#999]">
+                      <svg className="w-[1.2rem] h-[1.2rem] stroke-[#27ae60] fill-none" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* ── CONTACT INFO ── */}
             {currentStep === 'contact' && !submitted && (
@@ -959,7 +1024,8 @@ export default function CombinedOnboarding() {
                 <TF type="email" placeholder="Work Email *" value={workEmail} onChange={e => setWorkEmail(e.target.value)} />
                 <TF placeholder="Job Title (optional)" value={jobTitle} onChange={e => setJobTitle(e.target.value)} />
                 <TF type="tel" placeholder="Phone Number (optional)" value={phone} onChange={e => setPhone(e.target.value)} />
-                <div className="flex justify-end mt-[3rem] pt-[2.2rem] border-t border-[rgba(0,0,0,0.08)]">
+                <div className="flex items-center justify-between mt-[3rem] pt-[2.2rem] border-t border-[rgba(0,0,0,0.08)]">
+                  <BtnGhost onClick={goBack}>← Back</BtnGhost>
                   <BtnOrange
                     onClick={goNext}
                     disabled={!firstName.trim() || !lastName.trim() || !company.trim() || !isEmailValid(workEmail)}>
