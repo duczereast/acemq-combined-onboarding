@@ -167,6 +167,7 @@ async function sendMailjetEmail({ toEmail, toName, subject, html, pdfBase64, pdf
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildNoteBody({ submitter, company, services, engagementType, engagementRmqVersion,
+  engagementParticipants, kickoffDate, teamTimezone, schedulingPref,
   engagementDescription, technical, envUse, packaging, comments, portalUsers, supportUsers }) {
 
   const selectedServices = [
@@ -186,7 +187,12 @@ function buildNoteBody({ submitter, company, services, engagementType, engagemen
     note += `--- ENGAGEMENT ---\n`;
     note += `Type: ${engagementType || '—'}\n`;
     note += `RabbitMQ Version: ${engagementRmqVersion || '—'}\n`;
-    note += `Description: ${engagementDescription || '—'}\n\n`;
+    if (kickoffDate)           note += `Est. Kickoff: ${kickoffDate}\n`;
+    if (teamTimezone)          note += `Timezone: ${teamTimezone}\n`;
+    if (schedulingPref)        note += `Scheduling: ${schedulingPref}\n`;
+    if (engagementParticipants) note += `Participants:\n${engagementParticipants}\n`;
+    if (engagementDescription) note += `Comments: ${engagementDescription}\n`;
+    note += '\n';
   }
 
   if (services.license) {
@@ -285,7 +291,8 @@ export async function POST(request) {
     const body = await request.json();
     const {
       submitter, company, services,
-      engagementType, engagementRmqVersion, engagementDescription,
+      engagementType, engagementRmqVersion, engagementParticipants,
+      kickoffDate, teamTimezone, schedulingPref, engagementDescription,
       technical, envUse, packaging, comments, portalUsers, supportUsers,
       pdfBase64, pdfFilename,
     } = body;
@@ -310,6 +317,7 @@ export async function POST(request) {
 
         const noteBody = buildNoteBody({
           submitter, company, services, engagementType, engagementRmqVersion,
+          engagementParticipants, kickoffDate, teamTimezone, schedulingPref,
           engagementDescription, technical, envUse, packaging, comments, portalUsers, supportUsers,
         });
 

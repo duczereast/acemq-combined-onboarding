@@ -37,6 +37,13 @@ const PACKAGING_FORMAT_OPTIONS = [
   'VMware OVA',
 ];
 
+const SCHEDULING_OPTIONS = [
+  'Mornings (9am–12pm)',
+  'Afternoons (12pm–5pm)',
+  'Full-day availability',
+  'Flexible / No preference',
+];
+
 const ENGAGEMENT_TYPE_OPTIONS = [
   'Architecture Review',
   'Migration',
@@ -179,6 +186,43 @@ function ServiceCheckbox({ checked, onChange, icon, title, desc }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SECTION TRANSITION HEADER
+// ─────────────────────────────────────────────────────────────────────────────
+
+function SectionHeader({ icon, label, accent, stepLabel, steps }) {
+  return (
+    <div className="rounded-[1.4rem] overflow-hidden mb-[3.2rem]" style={{ border: `1.5px solid ${accent}22` }}>
+      {/* Colored top band */}
+      <div className="flex items-center gap-[1.4rem] px-[2rem] py-[1.6rem]" style={{ background: `${accent}12` }}>
+        <span className="text-[2.4rem] leading-none">{icon}</span>
+        <div className="flex-1">
+          <p className="text-[1.1rem] font-[700] tracking-[0.12em] uppercase mb-[0.2rem]" style={{ color: accent }}>
+            {stepLabel}
+          </p>
+          <p className="text-[1.8rem] font-[700] text-[#161616]">{label}</p>
+        </div>
+        <div className="flex items-center gap-[0.6rem]">
+          {steps.map((s, i) => (
+            <span key={i} className="w-[0.8rem] h-[0.8rem] rounded-full"
+              style={{ background: i === 0 ? accent : `${accent}33` }} />
+          ))}
+        </div>
+      </div>
+      {/* What's covered */}
+      <div className="px-[2rem] py-[1.2rem] bg-white flex flex-wrap gap-x-[2rem] gap-y-[0.4rem]">
+        {steps.map((s, i) => (
+          <span key={i} className="flex items-center gap-[0.5rem] text-[1.25rem]"
+            style={{ color: i === 0 ? '#161616' : '#bbb' }}>
+            <span style={{ color: i === 0 ? accent : '#ccc' }}>{i === 0 ? '●' : '○'}</span>
+            {s}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SUPPORT USERS EDITOR
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -315,7 +359,8 @@ async function loadImg(url) {
 async function generateCombinedPDF({
   submitter, company, services,
   // engagement
-  engagementType, engagementRmqVersion, engagementDescription,
+  engagementType, engagementRmqVersion, engagementParticipants,
+  kickoffDate, teamTimezone, schedulingPref, engagementDescription,
   // license
   technical, envUse, packaging, comments, portalUsers,
   // support
@@ -472,18 +517,34 @@ async function generateCombinedPDF({
 
     const engRows = [
       ['Company', company],
-      ['Contact', `${submitter.firstName} ${submitter.lastName}`],
+      ['Lead Stakeholder', `${submitter.firstName} ${submitter.lastName}`],
       ['Email', submitter.email],
+      ...(submitter.phone ? [['Phone', submitter.phone]] : []),
       ['Engagement Type', engagementType || '—'],
       ['RabbitMQ Version', engagementRmqVersion || 'Not specified'],
+      ...(kickoffDate ? [['Est. Kickoff Date', kickoffDate]] : []),
+      ...(teamTimezone ? [['Team Timezone', teamTimezone]] : []),
+      ...(schedulingPref ? [['Scheduling Preference', schedulingPref]] : []),
     ];
     engRows.forEach(([lbl, val], i) => { y = tableRow(lbl, val, y, i % 2 === 0, 60); });
 
-    if (engagementDescription) {
+    if (engagementParticipants) {
       y += 8;
+      y = need(y, 35);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); stA(mid);
+      doc.text('ENGAGEMENT PARTICIPANTS', ML + 4, y); y += 6;
+      sfA(bgGray); sdA(border);
+      const pLines = doc.splitTextToSize(engagementParticipants, CW - 14);
+      doc.roundedRect(ML, y - 2, CW, pLines.length * 5.2 + 10, 2, 2, 'FD');
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); stA(ink);
+      doc.text(pLines, ML + 7, y + 5);
+      y += pLines.length * 5.2 + 16;
+    }
+
+    if (engagementDescription) {
       y = need(y, 30);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(9); stA(mid);
-      doc.text('ENGAGEMENT DESCRIPTION / GOALS', ML + 4, y); y += 6;
+      doc.text('OTHER COMMENTS / DETAILS', ML + 4, y); y += 6;
       sfA(bgGray); sdA(border);
       const dLines = doc.splitTextToSize(engagementDescription, CW - 14);
       doc.roundedRect(ML, y - 2, CW, dLines.length * 5.2 + 10, 2, 2, 'FD');
@@ -799,6 +860,10 @@ export default function CombinedOnboarding() {
   // ── Engagement fields ──
   const [engagementType, setEngagementType] = useState('');
   const [engagementRmqVersion, setEngagementRmqVersion] = useState('');
+  const [engagementParticipants, setEngagementParticipants] = useState('');
+  const [kickoffDate, setKickoffDate] = useState('');
+  const [teamTimezone, setTeamTimezone] = useState('');
+  const [schedulingPref, setSchedulingPref] = useState('');
   const [engagementDescription, setEngagementDescription] = useState('');
 
   // ── License fields ──
@@ -856,6 +921,10 @@ export default function CombinedOnboarding() {
         services,
         engagementType,
         engagementRmqVersion,
+        engagementParticipants,
+        kickoffDate,
+        teamTimezone,
+        schedulingPref,
         engagementDescription,
         technical: { cpuCoreCount, cpuCoreType, deploymentEnv, rmqProduct },
         envUse,
@@ -877,6 +946,10 @@ export default function CombinedOnboarding() {
           services,
           engagementType,
           engagementRmqVersion,
+          engagementParticipants,
+          kickoffDate,
+          teamTimezone,
+          schedulingPref,
           engagementDescription,
           technical: { cpuCoreCount, cpuCoreType, deploymentEnv, rmqProduct },
           envUse,
@@ -1076,29 +1149,72 @@ export default function CombinedOnboarding() {
             {/* ── ENGAGEMENT DETAILS ── */}
             {currentStep === 'engagement' && !submitted && (
               <div>
-                <SectionLabel>Engagement Onboarding</SectionLabel>
+                <SectionHeader
+                  icon="🤝"
+                  label="Engagement Onboarding"
+                  accent="#FF6600"
+                  stepLabel="Section — Engagement"
+                  steps={['Engagement details', ...(services.license ? ['License config', 'License usage', 'License users'] : []), ...((services.support || services.engagement) ? ['Support users'] : [])]}
+                />
                 <QHead>Tell us about your engagement</QHead>
-                <QSub>Help us understand what you're looking to accomplish with AceMQ.</QSub>
+                <QSub>Help us understand your team, goals, and scheduling so we can hit the ground running.</QSub>
 
                 <p className="text-[1.4rem] font-[600] text-[#161616] mb-[1rem]">Engagement Type *</p>
                 {ENGAGEMENT_TYPE_OPTIONS.map(opt => (
                   <Choice key={opt} selected={engagementType === opt} onClick={() => setEngagementType(opt)}>{opt}</Choice>
                 ))}
 
-                <p className="text-[1.4rem] font-[600] text-[#161616] mb-[1rem] mt-[2rem]">Current RabbitMQ Version <span className="text-[#999] font-[400]">(if applicable)</span></p>
+                <p className="text-[1.4rem] font-[600] text-[#161616] mb-[0.4rem] mt-[2.4rem]">Lead Stakeholder</p>
+                <p className="text-[1.25rem] text-[#999] mb-[1rem]">Pulled from your contact info — update below if different.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-[1rem]">
+                  <TF placeholder="Lead Stakeholder Name" value={`${firstName} ${lastName}`.trim()} onChange={() => {}} />
+                  <TF type="email" placeholder="Lead Stakeholder Email" value={workEmail} onChange={() => {}} />
+                </div>
+                <TF type="tel" placeholder="Lead Stakeholder Phone (optional)" value={phone} onChange={e => {}} />
+
+                <p className="text-[1.4rem] font-[600] text-[#161616] mb-[0.4rem] mt-[1.6rem]">Engagement Participants *</p>
+                <p className="text-[1.25rem] text-[#999] mb-[1rem]">Include for each participant: Name · Title · Email · Engagement Role (e.g. technical lead, architect, platform owner, observer)</p>
+                <TA
+                  placeholder={"Example: Jane Smith · Director of DevOps · jane@company.com · Lead Stakeholder,\nJohn Doe · Infrastructure Manager · john@company.com · Platform Owner"}
+                  value={engagementParticipants}
+                  onChange={e => setEngagementParticipants(e.target.value)}
+                  rows={5}
+                />
+
+                <p className="text-[1.4rem] font-[600] text-[#161616] mb-[1rem] mt-[1.6rem]">Current RabbitMQ Version <span className="text-[#999] font-[400]">(if applicable)</span></p>
                 <TF placeholder="e.g. 3.12.6, 3.13.x, not currently using RabbitMQ…" value={engagementRmqVersion} onChange={e => setEngagementRmqVersion(e.target.value)} />
 
-                <p className="text-[1.4rem] font-[600] text-[#161616] mb-[1rem] mt-[1rem]">Description of Goals & Requirements *</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-[1rem] mt-[0.6rem]">
+                  <div>
+                    <p className="text-[1.4rem] font-[600] text-[#161616] mb-[1rem]">Estimated Kickoff Date</p>
+                    <input type="date" value={kickoffDate} onChange={e => setKickoffDate(e.target.value)}
+                      className="w-full bg-white border border-[rgba(0,0,0,0.12)] rounded-[1rem] px-[1.6rem] py-[1.3rem] text-[1.6rem] text-black outline-none focus:border-[#FF6600] focus:shadow-[0_0_0_3px_rgba(255,102,0,0.08)] transition-all mb-[1rem]" />
+                  </div>
+                  <div>
+                    <p className="text-[1.4rem] font-[600] text-[#161616] mb-[0.4rem]">Team Time Zone</p>
+                    <p className="text-[1.25rem] text-[#999] mb-[0.8rem]">What timezone are the engagement participants in?</p>
+                    <TF placeholder="e.g. Eastern (ET), Pacific (PT), UTC…" value={teamTimezone} onChange={e => setTeamTimezone(e.target.value)} />
+                  </div>
+                </div>
+
+                <p className="text-[1.4rem] font-[600] text-[#161616] mb-[1rem] mt-[0.4rem]">Engagement Session — Scheduling Preference *</p>
+                <select value={schedulingPref} onChange={e => setSchedulingPref(e.target.value)}
+                  className="w-full bg-white border border-[rgba(0,0,0,0.12)] rounded-[1rem] px-[1.6rem] py-[1.3rem] text-[1.6rem] text-black outline-none focus:border-[#FF6600] focus:shadow-[0_0_0_3px_rgba(255,102,0,0.08)] transition-all mb-[1rem] cursor-pointer">
+                  <option value="">Please Select</option>
+                  {SCHEDULING_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+
+                <p className="text-[1.4rem] font-[600] text-[#161616] mb-[1rem] mt-[1rem]">Other Comments or Details <span className="text-[#999] font-[400]">(optional)</span></p>
                 <TA
-                  placeholder="Describe your environment, challenges, and what you'd like to achieve through this engagement..."
+                  placeholder="Any other context, constraints, or goals for this engagement…"
                   value={engagementDescription}
                   onChange={e => setEngagementDescription(e.target.value)}
-                  rows={5}
+                  rows={4}
                 />
 
                 <div className="flex items-center justify-between mt-[3rem] pt-[2.2rem] border-t border-[rgba(0,0,0,0.08)]">
                   <BtnGhost onClick={goBack}>← Back</BtnGhost>
-                  <BtnOrange onClick={goNext} disabled={!engagementType || !engagementDescription.trim()}>
+                  <BtnOrange onClick={goNext} disabled={!engagementType || !engagementParticipants.trim() || !schedulingPref}>
                     Continue →
                   </BtnOrange>
                 </div>
@@ -1108,7 +1224,13 @@ export default function CombinedOnboarding() {
             {/* ── LICENSE TECHNICAL ── */}
             {currentStep === 'license-tech' && !submitted && (
               <div>
-                <SectionLabel>License Onboarding</SectionLabel>
+                <SectionHeader
+                  icon="🔑"
+                  label="License Onboarding"
+                  accent="#5bb8ad"
+                  stepLabel="Section — License"
+                  steps={['Technical config', 'Usage & packaging', 'Portal users', ...((services.support || services.engagement) ? ['Support users'] : [])]}
+                />
                 <QHead>Technical configuration</QHead>
                 <QSub>This helps us deliver the right license for your infrastructure.</QSub>
 
@@ -1204,7 +1326,13 @@ export default function CombinedOnboarding() {
             {/* ── SUPPORT PORTAL USERS ── */}
             {currentStep === 'support-users' && !submitted && (
               <div>
-                <SectionLabel>Support Portal Users</SectionLabel>
+                <SectionHeader
+                  icon="🎫"
+                  label="Support Portal Onboarding"
+                  accent="#161616"
+                  stepLabel="Section — Support"
+                  steps={['Support users']}
+                />
                 <QHead>Who needs support access?</QHead>
                 <QSub>
                   Add each team member who should be able to create and manage support tickets.{' '}
