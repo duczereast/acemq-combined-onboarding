@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 const HS_TOKEN        = process.env.HUBSPOT_TOKEN;
 const HS_PORTAL_ID    = process.env.HUBSPOT_PORTAL_ID    || '3925227';
@@ -286,6 +287,291 @@ function buildEmailHtml({ submitter, company, services }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PDF report — pdf-lib, matches AceMQ Standard Doc Format (same as Redis tool)
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function buildReportPdf({
+  submitter, company, services,
+  engagementParticipants, kickoffDate, teamTimezone, schedulingPref, timeSlotPref, engagementDescription,
+  technical, envUse, packaging, comments, portalUsers, supportUsers,
+}) {
+  const doc     = await PDFDocument.create();
+  const regular = await doc.embedFont(StandardFonts.Helvetica);
+  const bold    = await doc.embedFont(StandardFonts.HelveticaBold);
+
+  const BLACK  = rgb(0,    0,    0);
+  const ORANGE = rgb(1,    0.4,  0);
+  const DARK   = rgb(0.1,  0.1,  0.1);
+  const LIGHT  = rgb(0.6,  0.6,  0.6);
+  const WHITE  = rgb(1,    1,    1);
+  const ROWALT = rgb(0.98, 0.98, 0.98);
+  const BRDR   = rgb(0.91, 0.91, 0.91);
+
+  const W = 595, H = 842;
+  const ML = 56, MR = 56;
+  const BW = W - ML - MR;
+
+  const date      = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const dateShort = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
+  const subName   = [submitter.firstName, submitter.lastName].filter(Boolean).join(' ');
+  const svcNames  = [
+    services.engagement && 'Engagement',
+    services.license    && 'License',
+    services.support    && 'Support',
+  ].filter(Boolean);
+
+  let page = doc.addPage([W, H]);
+  let y = H - 56;
+
+  function wrapLines(text, font, size, maxW) {
+    const words = String(text || '').split(/\s+/).filter(Boolean);
+    const lines = [];
+    let cur = '';
+    for (const w of words) {
+      const trial = cur ? `${cur} ${w}` : w;
+      if (font.widthOfTextAtSize(trial, size) > maxW && cur) { lines.push(cur); cur = w; }
+      else cur = trial;
+    }
+    if (cur) lines.push(cur);
+    return lines.length ? lines : [''];
+  }
+
+  function ensureSpace(needed) {
+    if (y - needed < 56) {
+      page = doc.addPage([W, H]);
+      y = H - 56;
+      drawFooter(page);
+    }
+  }
+
+  function drawFooter(p) {
+    const fy = 36;
+    p.drawLine({ start: { x: ML, y: fy + 12 }, end: { x: W - MR, y: fy + 12 }, thickness: 0.5, color: LIGHT, opacity: 0.5 });
+    p.drawText('AceMQ · an ace8 company', { x: ML, y: fy, font: regular, size: 7, color: LIGHT });
+    const right = `AceMQ Onboarding Report  ·  ${dateShort}`;
+    p.drawText(right, { x: W - MR - regular.widthOfTextAtSize(right, 7), y: fy, font: regular, size: 7, color: LIGHT });
+  }
+
+  drawFooter(page);
+
+  // ── COVER ──
+  page.drawRectangle({ x: ML, y: y - 2, width: BW, height: 2, color: ORANGE });
+  y -= 16;
+  page.drawText('ONBOARDING REPORT', { x: ML, y, font: bold, size: 7.5, color: ORANGE, characterSpacing: 1.8 });
+  y -= 14;
+  page.drawText('AceMQ Onboarding Report', { x: ML, y, font: bold, size: 22, color: BLACK });
+  y -= 28;
+  page.drawText(`${company}  ·  Prepared by AceMQ  ·  ${date}`, { x: ML, y, font: regular, size: 10, color: LIGHT });
+  y -= 20;
+  page.drawRectangle({ x: ML, y: y - 18, width: BW, height: 18, color: ORANGE });
+  page.drawText(`SERVICES:  ${svcNames.join('  ·  ').toUpperCase()}`, { x: ML + 10, y: y - 13, font: bold, size: 7.5, color: WHITE, characterSpacing: 0.6 });
+  y -= 30;
+
+  // Submission details table
+  y -= 6;
+  page.drawText('Submission Details', { x: ML, y, font: bold, size: 13, color: BLACK });
+  y -= 12;
+
+  const COL1  = BW * 0.3;
+  const ROW_H = 16;
+
+  const detailRows = [
+    ['Title',          'AceMQ Onboarding Report'],
+    ['Services',       svcNames.join(', ')],
+    ['Submitted By',   subName],
+    ['Company',        company],
+    ...(submitter.jobTitle ? [['Job Title',  submitter.jobTitle]] : []),
+    ['Email',          submitter.email],
+    ...(submitter.phone    ? [['Phone',      submitter.phone]]    : []),
+    ['Date Submitted', date],
+    ['Prepared By',    'AceMQ — Program Management'],
+  ];
+
+  page.drawRectangle({ x: ML, y: y - ROW_H, width: BW, height: ROW_H, color: DARK });
+  page.drawText('Document', { x: ML + 6,       y: y - ROW_H + 5, font: bold, size: 8, color: WHITE });
+  page.drawText('Detail',   { x: ML + COL1 + 6, y: y - ROW_H + 5, font: bold, size: 8, color: WHITE });
+  y -= ROW_H;
+
+  detailRows.forEach(([l, v], i) => {
+    ensureSpace(ROW_H + 2);
+    if (i % 2 === 1) page.drawRectangle({ x: ML, y: y - ROW_H, width: BW, height: ROW_H, color: ROWALT });
+    page.drawLine({ start: { x: ML, y: y - ROW_H }, end: { x: ML + BW, y: y - ROW_H }, thickness: 0.4, color: BRDR });
+    page.drawText(l, { x: ML + 6, y: y - ROW_H + 5, font: regular, size: 8, color: LIGHT });
+    const vf = (l === 'Company' || l === 'Services') ? bold : regular;
+    page.drawText(String(v || '—'), { x: ML + COL1 + 6, y: y - ROW_H + 5, font: vf, size: 8, color: DARK, maxWidth: BW - COL1 - 12 });
+    y -= ROW_H;
+  });
+  y -= 16;
+
+  // ── Helpers ──
+
+  function drawSectionBanner(num, title) {
+    ensureSpace(36);
+    y -= 8;
+    page.drawRectangle({ x: ML, y: y - 18, width: BW, height: 18, color: ORANGE });
+    page.drawText(`${num}.  ${title}`, { x: ML + 10, y: y - 13, font: bold, size: 8, color: WHITE, characterSpacing: 0.8 });
+    y -= 28;
+  }
+
+  function drawSectionHead(text) {
+    ensureSpace(22);
+    page.drawText(text, { x: ML, y, font: bold, size: 12, color: BLACK });
+    y -= 16;
+  }
+
+  function drawSubHead(text) {
+    ensureSpace(18);
+    page.drawText(text, { x: ML, y, font: bold, size: 10, color: DARK });
+    y -= 14;
+  }
+
+  function drawKVTable(rows) {
+    page.drawRectangle({ x: ML, y: y - ROW_H, width: BW, height: ROW_H, color: DARK });
+    page.drawText('Detail', { x: ML + 6,       y: y - ROW_H + 5, font: bold, size: 8, color: WHITE });
+    page.drawText('Value',  { x: ML + COL1 + 6, y: y - ROW_H + 5, font: bold, size: 8, color: WHITE });
+    y -= ROW_H;
+    rows.forEach(([l, v], i) => {
+      ensureSpace(ROW_H + 2);
+      if (i % 2 === 1) page.drawRectangle({ x: ML, y: y - ROW_H, width: BW, height: ROW_H, color: ROWALT });
+      page.drawLine({ start: { x: ML, y: y - ROW_H }, end: { x: ML + BW, y: y - ROW_H }, thickness: 0.4, color: BRDR });
+      page.drawText(l, { x: ML + 6, y: y - ROW_H + 5, font: regular, size: 8, color: LIGHT });
+      page.drawText(String(v || '—'), { x: ML + COL1 + 6, y: y - ROW_H + 5, font: regular, size: 8, color: DARK, maxWidth: BW - COL1 - 12 });
+      y -= ROW_H;
+    });
+    y -= 8;
+  }
+
+  function drawTextBlock(text) {
+    if (!text?.trim()) return;
+    const LH = 13, SZ = 8.5, AW = BW - 16;
+    const lines = wrapLines(text, regular, SZ, AW);
+    const blockH = lines.length * LH + 10;
+    ensureSpace(blockH);
+    page.drawRectangle({ x: ML, y: y - blockH + 10, width: 3, height: blockH - 10, color: ORANGE });
+    lines.forEach((line, i) => {
+      page.drawText(line, { x: ML + 10, y: y - i * LH, font: regular, size: SZ, color: DARK });
+    });
+    y -= blockH;
+  }
+
+  let sn = 1;
+
+  // ── ENGAGEMENT ──
+  if (services.engagement) {
+    drawSectionBanner(sn++, 'ENGAGEMENT ONBOARDING');
+    drawSectionHead('Engagement Details');
+
+    const engRows = [
+      ['Est. Kickoff Date',      kickoffDate],
+      ['Team Timezone',          teamTimezone],
+      ['Scheduling Preference',  schedulingPref],
+      ['Time Preference',        timeSlotPref],
+    ].filter(([, v]) => v);
+    if (engRows.length) drawKVTable(engRows);
+
+    if (engagementParticipants?.length) {
+      drawSubHead('Participants');
+      const PC = [BW * 0.25, BW * 0.22, BW * 0.28, BW * 0.25];
+      const PRH = 15;
+      ensureSpace(PRH + 2);
+      page.drawRectangle({ x: ML, y: y - PRH, width: BW, height: PRH, color: DARK });
+      let xo = ML;
+      ['Name', 'Title', 'Email', 'Role'].forEach((h, ci) => {
+        page.drawText(h, { x: xo + 4, y: y - PRH + 5, font: bold, size: 7.5, color: WHITE, maxWidth: PC[ci] - 8 });
+        xo += PC[ci];
+      });
+      y -= PRH;
+      engagementParticipants.forEach((p, i) => {
+        ensureSpace(PRH + 2);
+        if (i % 2 === 1) page.drawRectangle({ x: ML, y: y - PRH, width: BW, height: PRH, color: ROWALT });
+        page.drawLine({ start: { x: ML, y: y - PRH }, end: { x: ML + BW, y: y - PRH }, thickness: 0.4, color: BRDR });
+        xo = ML;
+        [`${p.firstName || ''} ${p.lastName || ''}`.trim() || '—', p.title || '—', p.email || '—', p.role || '—'].forEach((c, ci) => {
+          page.drawText(c, { x: xo + 4, y: y - PRH + 5, font: regular, size: 7.5, color: DARK, maxWidth: PC[ci] - 8 });
+          xo += PC[ci];
+        });
+        y -= PRH;
+      });
+      y -= 8;
+    }
+
+    if (engagementDescription?.trim()) {
+      drawSubHead('Additional Comments');
+      drawTextBlock(engagementDescription);
+    }
+  }
+
+  // ── LICENSE ──
+  if (services.license) {
+    drawSectionBanner(sn++, 'LICENSE SETUP');
+    drawSectionHead('Technical Environment');
+
+    const licRows = [
+      ['RabbitMQ Product',   technical?.rmqProduct],
+      ['CPU Core Count',     technical?.cpuCoreCount],
+      ['CPU Core Type',      technical?.cpuCoreType],
+      ['Deployment Env',     technical?.deploymentEnv],
+      ['Environment Use',    envUse?.join(', ')],
+      ['Packaging Format',   packaging?.join(', ')],
+    ].filter(([, v]) => v);
+    if (licRows.length) drawKVTable(licRows);
+
+    if (portalUsers?.length) {
+      drawSubHead('Portal Users');
+      portalUsers.forEach((email, i) => {
+        ensureSpace(14);
+        if (i % 2 === 0) page.drawRectangle({ x: ML, y: y - 13, width: BW, height: 13, color: ROWALT });
+        page.drawLine({ start: { x: ML, y: y - 13 }, end: { x: ML + BW, y: y - 13 }, thickness: 0.4, color: BRDR });
+        page.drawText(email, { x: ML + 6, y: y - 8, font: regular, size: 8, color: DARK });
+        y -= 13;
+      });
+      y -= 8;
+    }
+
+    if (comments?.trim()) {
+      drawSubHead('Additional Comments');
+      drawTextBlock(comments);
+    }
+  }
+
+  // ── SUPPORT ──
+  if (services.support) {
+    drawSectionBanner(sn++, 'SUPPORT SETUP');
+    drawSectionHead('Support Users');
+
+    if (supportUsers?.length) {
+      const SC = [BW * 0.28, BW * 0.28, BW * 0.44];
+      const SRH = 15;
+      ensureSpace(SRH + 2);
+      page.drawRectangle({ x: ML, y: y - SRH, width: BW, height: SRH, color: DARK });
+      let xo = ML;
+      ['First Name', 'Last Name', 'Email'].forEach((h, ci) => {
+        page.drawText(h, { x: xo + 4, y: y - SRH + 5, font: bold, size: 7.5, color: WHITE, maxWidth: SC[ci] - 8 });
+        xo += SC[ci];
+      });
+      y -= SRH;
+      supportUsers.forEach((u, i) => {
+        ensureSpace(SRH + 2);
+        if (i % 2 === 1) page.drawRectangle({ x: ML, y: y - SRH, width: BW, height: SRH, color: ROWALT });
+        page.drawLine({ start: { x: ML, y: y - SRH }, end: { x: ML + BW, y: y - SRH }, thickness: 0.4, color: BRDR });
+        xo = ML;
+        [u.firstName || '—', u.lastName || '—', u.email || '—'].forEach((c, ci) => {
+          page.drawText(c, { x: xo + 4, y: y - SRH + 5, font: regular, size: 8, color: DARK, maxWidth: SC[ci] - 8 });
+          xo += SC[ci];
+        });
+        y -= SRH;
+      });
+    } else {
+      ensureSpace(18);
+      page.drawText('No support users specified.', { x: ML, y, font: regular, size: 8.5, color: LIGHT });
+      y -= 16;
+    }
+  }
+
+  return Buffer.from(await doc.save());
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST handler
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -295,9 +581,8 @@ export async function POST(request) {
     const {
       submitter, company, services,
       engagementParticipants,
-      kickoffDate, teamTimezone, schedulingPref, engagementDescription,
+      kickoffDate, teamTimezone, schedulingPref, timeSlotPref, engagementDescription,
       technical, envUse, packaging, comments, portalUsers, supportUsers,
-      pdfBase64, pdfFilename,
     } = body;
 
     if (!submitter?.email || !company) {
@@ -335,6 +620,21 @@ export async function POST(request) {
       }
     }
 
+    // Generate PDF server-side
+    let pdfBuffer = null;
+    let pdfBase64 = null;
+    try {
+      pdfBuffer = await buildReportPdf({
+        submitter, company, services,
+        engagementParticipants, kickoffDate, teamTimezone, schedulingPref, timeSlotPref, engagementDescription,
+        technical, envUse, packaging, comments, portalUsers, supportUsers,
+      });
+      pdfBase64 = pdfBuffer.toString('base64');
+    } catch (pdfErr) {
+      console.error('PDF build error:', pdfErr);
+      errors.push(`PDF: ${pdfErr.message}`);
+    }
+
     // Mailjet — send to onboarding@acemq.com
     try {
       const selectedServices = [
@@ -349,15 +649,18 @@ export async function POST(request) {
         subject:     `New Onboarding — ${company} (${selectedServices})`,
         html:        buildEmailHtml({ submitter, company, services }),
         pdfBase64,
-        pdfFilename: pdfFilename || `AceMQ-Onboarding-${company.replace(/\s+/g, '-')}.pdf`,
+        pdfFilename: `AceMQ-Onboarding-${company.replace(/\s+/g, '-')}.pdf`,
       });
     } catch (mjErr) {
       console.error('Mailjet error:', mjErr);
       errors.push(`Mailjet: ${mjErr.message}`);
-      // Don't fail the whole submission if email fails — data is already in HubSpot
     }
 
-    return NextResponse.json({ ok: true, warnings: errors.length > 0 ? errors : undefined });
+    return NextResponse.json({
+      ok: true,
+      pdfBase64,
+      warnings: errors.length > 0 ? errors : undefined,
+    });
   } catch (err) {
     console.error('Submit error:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
