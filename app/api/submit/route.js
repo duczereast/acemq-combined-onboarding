@@ -166,7 +166,7 @@ async function sendMailjetEmail({ toEmail, toName, subject, html, pdfBase64, pdf
 // Note body builder
 // ─────────────────────────────────────────────────────────────────────────────
 
-function buildNoteBody({ submitter, company, services, engagementType, engagementRmqVersion,
+function buildNoteBody({ submitter, company, services, engagementType,
   engagementParticipants, kickoffDate, teamTimezone, schedulingPref,
   engagementDescription, technical, envUse, packaging, comments, portalUsers, supportUsers }) {
 
@@ -186,11 +186,15 @@ function buildNoteBody({ submitter, company, services, engagementType, engagemen
   if (services.engagement) {
     note += `--- ENGAGEMENT ---\n`;
     note += `Type: ${engagementType || '—'}\n`;
-    note += `RabbitMQ Version: ${engagementRmqVersion || '—'}\n`;
     if (kickoffDate)           note += `Est. Kickoff: ${kickoffDate}\n`;
     if (teamTimezone)          note += `Timezone: ${teamTimezone}\n`;
     if (schedulingPref)        note += `Scheduling: ${schedulingPref}\n`;
-    if (engagementParticipants) note += `Participants:\n${engagementParticipants}\n`;
+    if (engagementParticipants?.length) {
+      note += `Participants:\n`;
+      engagementParticipants.forEach(p => {
+        note += `  ${p.firstName} ${p.lastName}${p.title ? ` · ${p.title}` : ''} · ${p.email} · ${p.role}\n`;
+      });
+    }
     if (engagementDescription) note += `Comments: ${engagementDescription}\n`;
     note += '\n';
   }
@@ -291,7 +295,7 @@ export async function POST(request) {
     const body = await request.json();
     const {
       submitter, company, services,
-      engagementType, engagementRmqVersion, engagementParticipants,
+      engagementType, engagementParticipants,
       kickoffDate, teamTimezone, schedulingPref, engagementDescription,
       technical, envUse, packaging, comments, portalUsers, supportUsers,
       pdfBase64, pdfFilename,
@@ -316,7 +320,7 @@ export async function POST(request) {
         }
 
         const noteBody = buildNoteBody({
-          submitter, company, services, engagementType, engagementRmqVersion,
+          submitter, company, services, engagementType,
           engagementParticipants, kickoffDate, teamTimezone, schedulingPref,
           engagementDescription, technical, envUse, packaging, comments, portalUsers, supportUsers,
         });

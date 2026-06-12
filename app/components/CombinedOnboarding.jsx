@@ -44,6 +44,35 @@ const SCHEDULING_OPTIONS = [
   'Flexible / No preference',
 ];
 
+const TIMEZONE_OPTIONS = [
+  'Eastern (ET) — UTC-5/4',
+  'Central (CT) — UTC-6/5',
+  'Mountain (MT) — UTC-7/6',
+  'Pacific (PT) — UTC-8/7',
+  'Alaska (AKT) — UTC-9/8',
+  'Hawaii (HT) — UTC-10',
+  'Atlantic (AT) — UTC-4/3',
+  'UTC / GMT',
+  'London (GMT/BST) — UTC+0/1',
+  'Central European (CET) — UTC+1/2',
+  'Eastern European (EET) — UTC+2/3',
+  'India (IST) — UTC+5:30',
+  'Singapore / HKT — UTC+8',
+  'Japan (JST) — UTC+9',
+  'Sydney (AEST) — UTC+10/11',
+  'New Zealand (NZST) — UTC+12/13',
+];
+
+const ENGAGEMENT_ROLE_OPTIONS = [
+  'Lead Stakeholder',
+  'Technical Lead',
+  'Architect',
+  'Platform Owner',
+  'Project Manager',
+  'Observer',
+  'Other',
+];
+
 const ENGAGEMENT_TYPE_OPTIONS = [
   'Architecture Review',
   'Migration',
@@ -290,6 +319,90 @@ function SupportUsersEditor({ users, setUsers }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ENGAGEMENT PARTICIPANTS EDITOR
+// ─────────────────────────────────────────────────────────────────────────────
+
+function EngagementParticipantsEditor({ participants, setParticipants }) {
+  const [draft, setDraft] = useState({ firstName: '', lastName: '', title: '', email: '', role: '' });
+  const [error, setError] = useState('');
+
+  const isEmailValid = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
+
+  const addParticipant = () => {
+    if (!draft.firstName.trim()) { setError('First name is required.'); return; }
+    if (!draft.email.trim() || !isEmailValid(draft.email)) { setError('A valid email address is required.'); return; }
+    if (!draft.role) { setError('Please select an engagement role.'); return; }
+    if (participants.some(p => p.email.toLowerCase() === draft.email.toLowerCase().trim())) {
+      setError('This email is already added.'); return;
+    }
+    setParticipants([...participants, {
+      firstName: draft.firstName.trim(),
+      lastName: draft.lastName.trim(),
+      title: draft.title.trim(),
+      email: draft.email.trim(),
+      role: draft.role,
+    }]);
+    setDraft({ firstName: '', lastName: '', title: '', email: '', role: '' });
+    setError('');
+  };
+
+  const removeParticipant = (idx) => setParticipants(participants.filter((_, i) => i !== idx));
+
+  return (
+    <div>
+      <div className="bg-[#fafafa] border border-[rgba(0,0,0,0.08)] rounded-[1.2rem] p-[1.6rem] mb-[1.6rem]">
+        <p className="text-[1.3rem] font-[600] text-[#161616] mb-[1.2rem]">Add a participant</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-[1rem]">
+          <input placeholder="First Name *" value={draft.firstName}
+            onChange={e => { setDraft(d => ({ ...d, firstName: e.target.value })); setError(''); }}
+            className="w-full bg-white border border-[rgba(0,0,0,0.12)] rounded-[1rem] px-[1.6rem] py-[1.2rem] text-[1.5rem] text-black placeholder:text-[#bbbbbb] outline-none focus:border-[#FF6600] transition-all mb-[1rem]" />
+          <input placeholder="Last Name" value={draft.lastName}
+            onChange={e => setDraft(d => ({ ...d, lastName: e.target.value }))}
+            className="w-full bg-white border border-[rgba(0,0,0,0.12)] rounded-[1rem] px-[1.6rem] py-[1.2rem] text-[1.5rem] text-black placeholder:text-[#bbbbbb] outline-none focus:border-[#FF6600] transition-all mb-[1rem]" />
+        </div>
+        <input placeholder="Job Title" value={draft.title}
+          onChange={e => setDraft(d => ({ ...d, title: e.target.value }))}
+          className="w-full bg-white border border-[rgba(0,0,0,0.12)] rounded-[1rem] px-[1.6rem] py-[1.2rem] text-[1.5rem] text-black placeholder:text-[#bbbbbb] outline-none focus:border-[#FF6600] transition-all mb-[1rem]" />
+        <input type="email" placeholder="Email Address *" value={draft.email}
+          onChange={e => { setDraft(d => ({ ...d, email: e.target.value })); setError(''); }}
+          className="w-full bg-white border border-[rgba(0,0,0,0.12)] rounded-[1rem] px-[1.6rem] py-[1.2rem] text-[1.5rem] text-black placeholder:text-[#bbbbbb] outline-none focus:border-[#FF6600] transition-all mb-[1rem]" />
+        <select value={draft.role} onChange={e => { setDraft(d => ({ ...d, role: e.target.value })); setError(''); }}
+          className="w-full bg-white border border-[rgba(0,0,0,0.12)] rounded-[1rem] px-[1.6rem] py-[1.2rem] text-[1.5rem] text-black outline-none focus:border-[#FF6600] transition-all mb-[1rem] cursor-pointer">
+          <option value="">Engagement Role *</option>
+          {ENGAGEMENT_ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
+        </select>
+        {error && <p className="text-[#c0392b] text-[1.3rem] mb-[1rem]">{error}</p>}
+        <button onClick={addParticipant}
+          className="bg-[#FF6600] text-white rounded-[0.8rem] px-[2rem] py-[1rem] text-[1.4rem] cursor-pointer hover:opacity-90 transition-all">
+          + Add Participant
+        </button>
+      </div>
+      {participants.length > 0 && (
+        <div className="border border-[rgba(0,0,0,0.08)] rounded-[1.2rem] overflow-hidden mb-[1.6rem]">
+          <div className="bg-[#f5f5f5] grid grid-cols-[1fr_1.4fr_1fr_auto] px-[1.6rem] py-[1rem] text-[1.2rem] font-[700] text-[#666] uppercase tracking-[0.05em]">
+            <span>Name</span><span>Email</span><span>Role</span><span></span>
+          </div>
+          {participants.map((p, i) => (
+            <div key={i} className={`grid grid-cols-[1fr_1.4fr_1fr_auto] px-[1.6rem] py-[1.2rem] text-[1.4rem] items-center ${i % 2 === 0 ? 'bg-white' : 'bg-[#fafafa]'} border-t border-[rgba(0,0,0,0.06)]`}>
+              <div>
+                <span className="text-[#161616] font-[600] block">{p.firstName} {p.lastName}</span>
+                {p.title && <span className="text-[#999] text-[1.2rem]">{p.title}</span>}
+              </div>
+              <span className="text-[#FF6600] text-[1.3rem] truncate">{p.email}</span>
+              <span className="text-[#666]">{p.role}</span>
+              <button onClick={() => removeParticipant(i)} className="text-[#c0392b] hover:text-[#a93226] text-[1.8rem] leading-none cursor-pointer px-[0.8rem]">×</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {participants.length === 0 && (
+        <p className="text-[#bbbbbb] text-[1.3rem] text-center py-[1.2rem]">No participants added yet.</p>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // EMAIL TAG INPUT
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -359,7 +472,7 @@ async function loadImg(url) {
 async function generateCombinedPDF({
   submitter, company, services,
   // engagement
-  engagementType, engagementRmqVersion, engagementParticipants,
+  engagementType, engagementParticipants,
   kickoffDate, teamTimezone, schedulingPref, engagementDescription,
   // license
   technical, envUse, packaging, comments, portalUsers,
@@ -521,24 +634,33 @@ async function generateCombinedPDF({
       ['Email', submitter.email],
       ...(submitter.phone ? [['Phone', submitter.phone]] : []),
       ['Engagement Type', engagementType || '—'],
-      ['RabbitMQ Version', engagementRmqVersion || 'Not specified'],
       ...(kickoffDate ? [['Est. Kickoff Date', kickoffDate]] : []),
       ...(teamTimezone ? [['Team Timezone', teamTimezone]] : []),
       ...(schedulingPref ? [['Scheduling Preference', schedulingPref]] : []),
     ];
     engRows.forEach(([lbl, val], i) => { y = tableRow(lbl, val, y, i % 2 === 0, 60); });
 
-    if (engagementParticipants) {
+    if (engagementParticipants && engagementParticipants.length > 0) {
       y += 8;
-      y = need(y, 35);
+      y = need(y, 20 + engagementParticipants.length * 9);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(9); stA(mid);
       doc.text('ENGAGEMENT PARTICIPANTS', ML + 4, y); y += 6;
-      sfA(bgGray); sdA(border);
-      const pLines = doc.splitTextToSize(engagementParticipants, CW - 14);
-      doc.roundedRect(ML, y - 2, CW, pLines.length * 5.2 + 10, 2, 2, 'FD');
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); stA(ink);
-      doc.text(pLines, ML + 7, y + 5);
-      y += pLines.length * 5.2 + 16;
+      sfA(black); doc.rect(ML, y, CW, 9, 'F');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); stA(white);
+      doc.text('NAME', ML + 5, y + 6.2);
+      doc.text('EMAIL', ML + 68, y + 6.2);
+      doc.text('ROLE', ML + 140, y + 6.2);
+      y += 9;
+      engagementParticipants.forEach((p, i) => {
+        sfA(i % 2 === 0 ? bgGray : white); sdA(border); doc.rect(ML, y, CW, 9, 'FD');
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9); stA(ink);
+        const nameStr = `${p.firstName} ${p.lastName}`.trim() + (p.title ? ` · ${p.title}` : '');
+        doc.text(nameStr.length > 35 ? nameStr.substring(0, 33) + '…' : nameStr, ML + 5, y + 6);
+        stA(orange); doc.text(p.email.length > 38 ? p.email.substring(0, 36) + '…' : p.email, ML + 68, y + 6);
+        stA(mid); doc.text(p.role || '', ML + 140, y + 6);
+        y += 9;
+      });
+      y += 6;
     }
 
     if (engagementDescription) {
@@ -859,8 +981,7 @@ export default function CombinedOnboarding() {
 
   // ── Engagement fields ──
   const [engagementType, setEngagementType] = useState('');
-  const [engagementRmqVersion, setEngagementRmqVersion] = useState('');
-  const [engagementParticipants, setEngagementParticipants] = useState('');
+  const [engagementParticipants, setEngagementParticipants] = useState([]);
   const [kickoffDate, setKickoffDate] = useState('');
   const [teamTimezone, setTeamTimezone] = useState('');
   const [schedulingPref, setSchedulingPref] = useState('');
@@ -920,7 +1041,6 @@ export default function CombinedOnboarding() {
         company,
         services,
         engagementType,
-        engagementRmqVersion,
         engagementParticipants,
         kickoffDate,
         teamTimezone,
@@ -945,7 +1065,6 @@ export default function CombinedOnboarding() {
           company,
           services,
           engagementType,
-          engagementRmqVersion,
           engagementParticipants,
           kickoffDate,
           teamTimezone,
@@ -1164,40 +1283,36 @@ export default function CombinedOnboarding() {
                   <Choice key={opt} selected={engagementType === opt} onClick={() => setEngagementType(opt)}>{opt}</Choice>
                 ))}
 
-                <p className="text-[1.4rem] font-[600] text-[#161616] mb-[0.4rem] mt-[2.4rem]">Lead Stakeholder</p>
-                <p className="text-[1.25rem] text-[#999] mb-[1rem]">Pulled from your contact info — update below if different.</p>
+                <p className="text-[1.4rem] font-[600] text-[#161616] mb-[1rem] mt-[2.4rem]">Lead Stakeholder</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-[1rem]">
                   <TF placeholder="Lead Stakeholder Name" value={`${firstName} ${lastName}`.trim()} onChange={() => {}} />
                   <TF type="email" placeholder="Lead Stakeholder Email" value={workEmail} onChange={() => {}} />
                 </div>
-                <TF type="tel" placeholder="Lead Stakeholder Phone (optional)" value={phone} onChange={e => {}} />
+                <TF type="tel" placeholder="Lead Stakeholder Phone (optional)" value={phone} onChange={() => {}} />
 
-                <p className="text-[1.4rem] font-[600] text-[#161616] mb-[0.4rem] mt-[1.6rem]">Engagement Participants *</p>
-                <p className="text-[1.25rem] text-[#999] mb-[1rem]">Include for each participant: Name · Title · Email · Engagement Role (e.g. technical lead, architect, platform owner, observer)</p>
-                <TA
-                  placeholder={"Example: Jane Smith · Director of DevOps · jane@company.com · Lead Stakeholder,\nJohn Doe · Infrastructure Manager · john@company.com · Platform Owner"}
-                  value={engagementParticipants}
-                  onChange={e => setEngagementParticipants(e.target.value)}
-                  rows={5}
+                <p className="text-[1.4rem] font-[600] text-[#161616] mb-[1rem] mt-[1.6rem]">Engagement Participants *</p>
+                <EngagementParticipantsEditor
+                  participants={engagementParticipants}
+                  setParticipants={setEngagementParticipants}
                 />
 
-                <p className="text-[1.4rem] font-[600] text-[#161616] mb-[1rem] mt-[1.6rem]">Current RabbitMQ Version <span className="text-[#999] font-[400]">(if applicable)</span></p>
-                <TF placeholder="e.g. 3.12.6, 3.13.x, not currently using RabbitMQ…" value={engagementRmqVersion} onChange={e => setEngagementRmqVersion(e.target.value)} />
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-[1rem] mt-[0.6rem]">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-[1rem] mt-[1.6rem]">
                   <div>
                     <p className="text-[1.4rem] font-[600] text-[#161616] mb-[1rem]">Estimated Kickoff Date</p>
                     <input type="date" value={kickoffDate} onChange={e => setKickoffDate(e.target.value)}
                       className="w-full bg-white border border-[rgba(0,0,0,0.12)] rounded-[1rem] px-[1.6rem] py-[1.3rem] text-[1.6rem] text-black outline-none focus:border-[#FF6600] focus:shadow-[0_0_0_3px_rgba(255,102,0,0.08)] transition-all mb-[1rem]" />
                   </div>
                   <div>
-                    <p className="text-[1.4rem] font-[600] text-[#161616] mb-[0.4rem]">Team Time Zone</p>
-                    <p className="text-[1.25rem] text-[#999] mb-[0.8rem]">What timezone are the engagement participants in?</p>
-                    <TF placeholder="e.g. Eastern (ET), Pacific (PT), UTC…" value={teamTimezone} onChange={e => setTeamTimezone(e.target.value)} />
+                    <p className="text-[1.4rem] font-[600] text-[#161616] mb-[1rem]">Team Time Zone</p>
+                    <select value={teamTimezone} onChange={e => setTeamTimezone(e.target.value)}
+                      className="w-full bg-white border border-[rgba(0,0,0,0.12)] rounded-[1rem] px-[1.6rem] py-[1.3rem] text-[1.6rem] text-black outline-none focus:border-[#FF6600] focus:shadow-[0_0_0_3px_rgba(255,102,0,0.08)] transition-all mb-[1rem] cursor-pointer">
+                      <option value="">Select Timezone</option>
+                      {TIMEZONE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                    </select>
                   </div>
                 </div>
 
-                <p className="text-[1.4rem] font-[600] text-[#161616] mb-[1rem] mt-[0.4rem]">Engagement Session — Scheduling Preference *</p>
+                <p className="text-[1.4rem] font-[600] text-[#161616] mb-[1rem]">Engagement Session — Scheduling Preference *</p>
                 <select value={schedulingPref} onChange={e => setSchedulingPref(e.target.value)}
                   className="w-full bg-white border border-[rgba(0,0,0,0.12)] rounded-[1rem] px-[1.6rem] py-[1.3rem] text-[1.6rem] text-black outline-none focus:border-[#FF6600] focus:shadow-[0_0_0_3px_rgba(255,102,0,0.08)] transition-all mb-[1rem] cursor-pointer">
                   <option value="">Please Select</option>
@@ -1214,7 +1329,7 @@ export default function CombinedOnboarding() {
 
                 <div className="flex items-center justify-between mt-[3rem] pt-[2.2rem] border-t border-[rgba(0,0,0,0.08)]">
                   <BtnGhost onClick={goBack}>← Back</BtnGhost>
-                  <BtnOrange onClick={goNext} disabled={!engagementType || !engagementParticipants.trim() || !schedulingPref}>
+                  <BtnOrange onClick={goNext} disabled={!engagementType || engagementParticipants.length === 0 || !schedulingPref}>
                     Continue →
                   </BtnOrange>
                 </div>
