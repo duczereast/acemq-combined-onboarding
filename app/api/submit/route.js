@@ -166,7 +166,7 @@ async function sendMailjetEmail({ toEmail, toName, subject, html, pdfBase64, pdf
 // Note body builder
 // ─────────────────────────────────────────────────────────────────────────────
 
-function buildNoteBody({ submitter, company, services, engagementType,
+function buildNoteBody({ submitter, company, services,
   engagementParticipants, kickoffDate, teamTimezone, schedulingPref,
   engagementDescription, technical, envUse, packaging, comments, portalUsers, supportUsers }) {
 
@@ -185,7 +185,6 @@ function buildNoteBody({ submitter, company, services, engagementType,
 
   if (services.engagement) {
     note += `--- ENGAGEMENT ---\n`;
-    note += `Type: ${engagementType || '—'}\n`;
     if (kickoffDate)           note += `Est. Kickoff: ${kickoffDate}\n`;
     if (teamTimezone)          note += `Timezone: ${teamTimezone}\n`;
     if (schedulingPref)        note += `Scheduling: ${schedulingPref}\n`;
@@ -295,7 +294,7 @@ export async function POST(request) {
     const body = await request.json();
     const {
       submitter, company, services,
-      engagementType, engagementParticipants,
+      engagementParticipants,
       kickoffDate, teamTimezone, schedulingPref, engagementDescription,
       technical, envUse, packaging, comments, portalUsers, supportUsers,
       pdfBase64, pdfFilename,
@@ -320,7 +319,7 @@ export async function POST(request) {
         }
 
         const noteBody = buildNoteBody({
-          submitter, company, services, engagementType,
+          submitter, company, services,
           engagementParticipants, kickoffDate, teamTimezone, schedulingPref,
           engagementDescription, technical, envUse, packaging, comments, portalUsers, supportUsers,
         });

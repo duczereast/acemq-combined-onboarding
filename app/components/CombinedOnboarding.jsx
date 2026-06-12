@@ -472,7 +472,7 @@ async function loadImg(url) {
 async function generateCombinedPDF({
   submitter, company, services,
   // engagement
-  engagementType, engagementParticipants,
+  engagementParticipants,
   kickoffDate, teamTimezone, schedulingPref, engagementDescription,
   // license
   technical, envUse, packaging, comments, portalUsers,
@@ -633,7 +633,6 @@ async function generateCombinedPDF({
       ['Lead Stakeholder', `${submitter.firstName} ${submitter.lastName}`],
       ['Email', submitter.email],
       ...(submitter.phone ? [['Phone', submitter.phone]] : []),
-      ['Engagement Type', engagementType || '—'],
       ...(kickoffDate ? [['Est. Kickoff Date', kickoffDate]] : []),
       ...(teamTimezone ? [['Team Timezone', teamTimezone]] : []),
       ...(schedulingPref ? [['Scheduling Preference', schedulingPref]] : []),
@@ -980,7 +979,6 @@ export default function CombinedOnboarding() {
   const [services, setServices] = useState({ engagement: false, support: false, license: false });
 
   // ── Engagement fields ──
-  const [engagementType, setEngagementType] = useState('');
   const [engagementParticipants, setEngagementParticipants] = useState([]);
   const [kickoffDate, setKickoffDate] = useState('');
   const [teamTimezone, setTeamTimezone] = useState('');
@@ -1040,7 +1038,6 @@ export default function CombinedOnboarding() {
         submitter: submitterInfo,
         company,
         services,
-        engagementType,
         engagementParticipants,
         kickoffDate,
         teamTimezone,
@@ -1278,12 +1275,7 @@ export default function CombinedOnboarding() {
                 <QHead>Tell us about your engagement</QHead>
                 <QSub>Help us understand your team, goals, and scheduling so we can hit the ground running.</QSub>
 
-                <p className="text-[1.4rem] font-[600] text-[#161616] mb-[1rem]">Engagement Type *</p>
-                {ENGAGEMENT_TYPE_OPTIONS.map(opt => (
-                  <Choice key={opt} selected={engagementType === opt} onClick={() => setEngagementType(opt)}>{opt}</Choice>
-                ))}
-
-                <p className="text-[1.4rem] font-[600] text-[#161616] mb-[1rem] mt-[2.4rem]">Lead Stakeholder</p>
+                <p className="text-[1.4rem] font-[600] text-[#161616] mb-[1rem]">Lead Stakeholder</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-[1rem]">
                   <TF placeholder="Lead Stakeholder Name" value={`${firstName} ${lastName}`.trim()} onChange={() => {}} />
                   <TF type="email" placeholder="Lead Stakeholder Email" value={workEmail} onChange={() => {}} />
@@ -1329,7 +1321,7 @@ export default function CombinedOnboarding() {
 
                 <div className="flex items-center justify-between mt-[3rem] pt-[2.2rem] border-t border-[rgba(0,0,0,0.08)]">
                   <BtnGhost onClick={goBack}>← Back</BtnGhost>
-                  <BtnOrange onClick={goNext} disabled={!engagementType || engagementParticipants.length === 0 || !schedulingPref}>
+                  <BtnOrange onClick={goNext} disabled={engagementParticipants.length === 0 || !schedulingPref}>
                     Continue →
                   </BtnOrange>
                 </div>
