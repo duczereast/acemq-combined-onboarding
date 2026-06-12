@@ -38,6 +38,11 @@ const PACKAGING_FORMAT_OPTIONS = [
 ];
 
 const SCHEDULING_OPTIONS = [
+  'Fixed Reoccurring Time Slot',
+  'Dynamically Scheduled Sessions',
+];
+
+const TIME_SLOT_OPTIONS = [
   'Mornings (9am–12pm)',
   'Afternoons (12pm–5pm)',
   'Full-day availability',
@@ -473,7 +478,7 @@ async function generateCombinedPDF({
   submitter, company, services,
   // engagement
   engagementParticipants,
-  kickoffDate, teamTimezone, schedulingPref, engagementDescription,
+  kickoffDate, teamTimezone, schedulingPref, timeSlotPref, engagementDescription,
   // license
   technical, envUse, packaging, comments, portalUsers,
   // support
@@ -482,427 +487,492 @@ async function generateCombinedPDF({
   const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
 
-  const W = 210, H = 297, ML = 18, MR = 18;
+  const W = 210, H = 297, ML = 20, MR = 20;
   const CW = W - ML - MR;
-  const logoData = await loadImg('/redesign/ace_logo_footer.png');
 
-  const orange = [255, 102, 0], teal = [143, 213, 204], black = [0, 0, 0],
-        white  = [255, 255, 255], ink = [22, 22, 22], mid = [100, 100, 100],
-        light  = [160, 160, 160], bgGray = [248, 248, 248], border = [225, 225, 225];
+  const logoLg = await loadImg('/redesign/logo.png');
+  const logoSm = await loadImg('/redesign/ace_logo_footer.png');
 
-  const sf  = (r,g,b) => doc.setFillColor(r,g,b);
-  const sd  = (r,g,b) => doc.setDrawColor(r,g,b);
-  const st  = (r,g,b) => doc.setTextColor(r,g,b);
-  const sfA = (a) => doc.setFillColor(...a);
-  const sdA = (a) => doc.setDrawColor(...a);
-  const stA = (a) => doc.setTextColor(...a);
+  // Brand palette — AceMQ Standard Doc Format
+  const orange  = [255, 102, 0];
+  const ink     = [22, 22, 22];
+  const body    = [65, 65, 65];
+  const mid     = [120, 120, 120];
+  const white   = [255, 255, 255];
+  const bgGray  = [248, 248, 248];
+  const border  = [215, 215, 215];
+  const tblHdr  = [30, 30, 30];
+  const codeBg  = [243, 243, 243];
+  const callBg  = [255, 249, 238];
+  const callBdr = [255, 190, 105];
 
-  let pageNum = 0;
-  const addFooter = () => {
-    sfA(black); doc.rect(0, H - 10, W, 10, 'F');
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); st(150,150,150);
-    doc.text('CONFIDENTIAL  ·  Prepared by AceMQ, The #1 RabbitMQ Partner  ·  acemq.com  ·  onboarding@acemq.com', ML, H - 3.5);
-    st(100,100,100); doc.text(String(pageNum), W - MR, H - 3.5, { align: 'right' });
-  };
-  const newPage = () => { doc.addPage(); pageNum++; addFooter(); return ML + 8; };
+  const sf = (c) => doc.setFillColor(c[0], c[1], c[2]);
+  const sd = (c) => doc.setDrawColor(c[0], c[1], c[2]);
+  const st = (c) => doc.setTextColor(c[0], c[1], c[2]);
 
-  const sectionHead = (title, y) => {
-    sfA(orange); doc.rect(ML, y, 3.5, 10, 'F');
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(13.5); stA(ink);
-    doc.text(title, ML + 9, y + 7.2);
-    return y + 17;
-  };
-
-  const bodyText = (text, y, opts = {}) => {
-    const { maxW = CW - 6, size = 10, color = mid, x = ML + 4 } = opts;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(size); stA(color);
-    const lines = doc.splitTextToSize(text, maxW);
-    doc.text(lines, x, y);
-    return y + lines.length * (size * 0.53) + 2;
-  };
-
-  const stepBox = (num, title, desc, y) => {
-    const descLines = desc ? doc.splitTextToSize(desc, CW - 26) : [];
-    const boxH = desc ? 15 + descLines.length * 5 + 5 : 15;
-    sfA(bgGray); sdA(border); doc.roundedRect(ML, y, CW, boxH, 2, 2, 'FD');
-    sfA(orange); doc.circle(ML + 8, y + 7.5, 5, 'F');
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); stA(white);
-    doc.text(String(num), ML + 8, y + 7.5, { align: 'center', baseline: 'middle' });
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); stA(ink);
-    doc.text(title, ML + 17, y + 9);
-    if (desc) { doc.setFont('helvetica', 'normal'); doc.setFontSize(9); stA(mid); doc.text(descLines, ML + 17, y + 15); }
-    return y + boxH + 4;
-  };
-
-  const tableRow = (label, value, y, even = true, labelW = 60) => {
-    sfA(even ? bgGray : white); sdA(border); doc.rect(ML, y, CW, 10, 'FD');
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); stA(mid);
-    doc.text(label.toUpperCase(), ML + 5, y + 6.8);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); stA(ink);
-    const val = String(value || '—');
-    doc.text(val.length > 72 ? val.substring(0, 70) + '…' : val, ML + labelW, y + 6.8);
-    return y + 10;
-  };
-
-  const codeBlock = (code, y) => {
-    const lines = doc.splitTextToSize(code, CW - 16);
-    const boxH = lines.length * 5 + 12;
-    sf(22,22,22); sd(40,40,40); doc.roundedRect(ML, y, CW, boxH, 2, 2, 'FD');
-    sfA(teal); doc.circle(ML + 6, y + 6, 1.8, 'F');
-    doc.setFont('courier', 'normal'); doc.setFontSize(8.5);
-    st(180, 240, 230); doc.text(lines, ML + 12, y + 7.5);
-    return y + boxH + 5;
-  };
-
-  const need = (y, h) => { if (y + h > H - 20) { y = newPage(); } return y; };
+  const dateStr  = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const dateShort = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
+  const docTitle = 'AceMQ Onboarding Report';
 
   const selectedNames = [
     services.engagement && 'Engagement',
-    services.license && 'License',
-    services.support && 'Support',
+    services.license    && 'License',
+    services.support    && 'Support',
   ].filter(Boolean);
+
+  let pageNum = 0;
+
+  // ── Footer: thin rule + "AceMQ · an ace8 company" | "DocTitle · Date · Page N" ──
+  const addFooter = () => {
+    sd(border); doc.setLineWidth(0.25);
+    doc.line(ML, H - 13, W - MR, H - 13);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); st(mid);
+    doc.text('AceMQ  ·  an ace8 company', ML, H - 7.5);
+    doc.text(`${docTitle}  ·  ${dateShort}  ·  Page ${pageNum}`, W - MR, H - 7.5, { align: 'right' });
+  };
+
+  // ── Small logo top-right ──
+  const addSmLogo = () => {
+    const lg = logoSm || logoLg;
+    if (lg) doc.addImage(lg, 'PNG', W - MR - 25, 9, 25, 10);
+  };
+
+  // ── Orange breadcrumb banner (full-width, white text) ──
+  const addBanner = (docLabel, sectionBold, trailItems = []) => {
+    sf(orange); doc.rect(0, 7, W, 15, 'F');
+    let x = ML;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); st(white);
+    const dl = docLabel.toUpperCase() + '  ';
+    doc.text(dl, x, 17);
+    x += doc.getTextWidth(dl);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); st(white);
+    const sb = sectionBold.toUpperCase();
+    doc.text(sb, x, 17);
+    x += doc.getTextWidth(sb);
+    if (trailItems.length) {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); st([255, 215, 168]);
+      doc.text('  ' + trailItems.join('  ·  '), x, 17);
+    }
+  };
+
+  // ── New content page ──
+  const newPage = (docLabel, sectionBold, trailItems = []) => {
+    doc.addPage(); pageNum++;
+    addSmLogo();
+    addBanner(docLabel, sectionBold, trailItems);
+    addFooter();
+    return 30;
+  };
+
+  // ── Section heading with orange left-bar accent ──
+  const secHead = (n, title, y) => {
+    sf(orange); doc.rect(ML - 5, y - 11, 3.5, 13, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(17); st(ink);
+    doc.text(`${n}.  ${title}`, ML, y);
+    return y + 14;
+  };
+
+  // ── Sub-section heading with orange left-bar accent ──
+  const subHead = (label, y) => {
+    sf(orange); doc.rect(ML - 4, y - 8, 3, 10, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); st(ink);
+    doc.text(label, ML, y);
+    return y + 10;
+  };
+
+  // ── Body paragraph ──
+  const para = (text, y, w = CW) => {
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); st(body);
+    const lines = doc.splitTextToSize(text, w);
+    doc.text(lines, ML, y);
+    return y + lines.length * 5.5 + 3;
+  };
+
+  // ── Table header row (dark background, white bold text) ──
+  const tblHead = (cols, colW, y) => {
+    sf(tblHdr); sd(tblHdr); doc.setLineWidth(0.2);
+    doc.rect(ML, y, CW, 9, 'F');
+    let x = ML + 3;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); st(white);
+    cols.forEach((c, i) => { doc.text(c, x, y + 6.3); x += colW[i]; });
+    return y + 9;
+  };
+
+  // ── Two-column detail row (alternating rows) ──
+  const detRow = (label, value, y, even, lw = 58) => {
+    sf(even ? bgGray : white); sd(border); doc.setLineWidth(0.2);
+    doc.rect(ML, y, CW, 9, 'FD');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); st(mid);
+    doc.text(label, ML + 3, y + 6.3);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); st(ink);
+    const v = String(value || '—');
+    doc.text(v.length > 70 ? v.substring(0, 68) + '…' : v, ML + lw, y + 6.3);
+    return y + 9;
+  };
+
+  // ── Code block: plain light-gray background, no left accent (matches Standard Doc Format) ──
+  const codeBox = (code, y) => {
+    const lines = doc.splitTextToSize(code, CW - 10);
+    const bh = lines.length * 4.9 + 11;
+    sf(codeBg); sd(border); doc.setLineWidth(0.3);
+    doc.roundedRect(ML, y, CW, bh, 1.5, 1.5, 'FD');
+    doc.setFont('courier', 'normal'); doc.setFontSize(8.5); st(ink);
+    doc.text(lines, ML + 5, y + 7.5);
+    return y + bh + 5;
+  };
+
+  // ── Callout box: warm background, left orange stripe ──
+  const callBox = (text, y) => {
+    const lines = doc.splitTextToSize(text, CW - 17);
+    const bh = lines.length * 5.5 + 13;
+    sf(callBg); sd(callBdr); doc.setLineWidth(0.3);
+    doc.roundedRect(ML, y, CW, bh, 1.5, 1.5, 'FD');
+    sf(orange); doc.rect(ML, y, 3, bh, 'F');
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); st(body);
+    doc.text(lines, ML + 7, y + 9);
+    return y + bh + 6;
+  };
+
+  // ── Numbered step box ──
+  const stepBox = (n, title, desc, y) => {
+    const dLines = desc ? doc.splitTextToSize(desc, CW - 20) : [];
+    const bh = desc ? 13 + dLines.length * 5 + 5 : 14;
+    sf(bgGray); sd(border); doc.setLineWidth(0.2);
+    doc.roundedRect(ML, y, CW, bh, 1.5, 1.5, 'FD');
+    sf(orange); doc.circle(ML + 7.5, y + bh / 2, 4, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); st(white);
+    doc.text(String(n), ML + 7.5, y + bh / 2 + 3, { align: 'center' });
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); st(ink);
+    doc.text(title, ML + 17, y + 9);
+    if (desc) { doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); st(body); doc.text(dLines, ML + 17, y + 15); }
+    return y + bh + 4;
+  };
 
   // ════════════════════════════════════════════════════════════════════════════
   // PAGE 1 — COVER
   // ════════════════════════════════════════════════════════════════════════════
   pageNum = 1;
 
-  sfA(black); doc.rect(0, 0, W, 62, 'F');
-  if (logoData) {
-    doc.addImage(logoData, 'PNG', ML, 13, 36, 12);
-  } else {
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(22); stA(white);
-    doc.text('AceMQ', ML, 26);
-  }
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); stA(teal);
-  doc.text('THE #1 RABBITMQ PARTNER', ML, 37);
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); st(120,120,120);
-  doc.text('ONBOARDING REPORT', W - MR, 24, { align: 'right' });
-  doc.setFontSize(7); st(80,80,80);
-  doc.text(new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' }), W - MR, 32, { align: 'right' });
+  // Large logo top-left, small logo top-right
+  if (logoLg) doc.addImage(logoLg, 'PNG', ML, 12, 54, 21);
+  addSmLogo();
 
-  sfA(orange); doc.rect(0, 62, W, 4, 'F');
+  // Orange rule below logo area — full width, matches Standard Doc Format
+  sf(orange); doc.rect(0, 40, W, 0.8, 'F');
 
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(32); stA(ink);
-  doc.text('AceMQ Onboarding', ML, 86);
-  stA(orange); doc.text(selectedNames.join(' + '), ML, 100);
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(11); st(110,110,110);
-  doc.text('Your comprehensive onboarding package for AceMQ RabbitMQ services.', ML, 113);
+  // Category label
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9); st(orange);
+  doc.text('ONBOARDING REPORT', ML, 53);
 
-  sfA(teal); doc.rect(ML, 120, 32, 2, 'F');
+  // Title
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(26); st(ink);
+  doc.text('AceMQ Onboarding Report', ML, 68);
 
-  // Info box
-  const infoRowCount = 4 + (services.license ? 2 : 0);
-  const infoBoxH = infoRowCount * 9.5 + 12;
-  sfA(bgGray); sdA(border); doc.roundedRect(ML, 127, CW, infoBoxH, 3, 3, 'FD');
-  const coverRows = [
-    ['Prepared for', company],
-    ['Submitted by', `${submitter.firstName} ${submitter.lastName}`],
+  // Subtitle
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(12); st(mid);
+  doc.text(`${company}  ·  ${selectedNames.join('  ·  ')}`, ML, 80);
+
+  // Services banner — full-width, flat (matches Standard Doc Format)
+  sf(orange); doc.rect(0, 88, W, 11, 'F');
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); st(white);
+  const banLeft = 'ONBOARDING REPORT  ';
+  doc.text(banLeft, ML, 95.2);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+  doc.text(selectedNames.join('  ·  ').toUpperCase(), ML + doc.getTextWidth(banLeft), 95.2);
+
+  // Document details table
+  let y = 108;
+  y = tblHead(['Document', 'Detail'], [58, CW - 58], y);
+  [
+    ['Title', 'AceMQ Onboarding Report'],
+    ['Prepared For', company],
+    ['Submitted By', `${submitter.firstName} ${submitter.lastName}`],
     ['Email', submitter.email],
     ...(submitter.jobTitle ? [['Job Title', submitter.jobTitle]] : []),
-    ...(submitter.phone ? [['Phone', submitter.phone]] : []),
-    ['Onboarding Types', selectedNames.join(', ')],
-    ['Date', new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' })],
-  ];
-  let iy = 136;
-  coverRows.forEach(([label, value]) => {
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); stA(light);
-    doc.text(label.toUpperCase(), ML + 8, iy);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); stA(ink);
-    const v = String(value || '—');
-    doc.text(v.length > 65 ? v.substring(0, 63) + '…' : v, ML + 60, iy);
-    iy += 9.5;
-  });
+    ...(submitter.phone    ? [['Phone', submitter.phone]]         : []),
+    ['Services', selectedNames.join('  ·  ')],
+    ['Date', dateStr],
+    ['Classification', 'Confidential — Prepared by AceMQ'],
+  ].forEach(([l, v], i) => { y = detRow(l, v, y, i % 2 === 0); });
 
-  sfA(bgGray); sdA(border); doc.roundedRect(ML, H - 28, CW, 12, 2, 2, 'FD');
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); st(150,150,150);
-  doc.text('This document is confidential and prepared exclusively for ' + company + '.', ML + 5, H - 19.5);
   addFooter();
+  let secN = 0;
 
   // ════════════════════════════════════════════════════════════════════════════
-  // ENGAGEMENT SECTION
+  // ENGAGEMENT
   // ════════════════════════════════════════════════════════════════════════════
   if (services.engagement) {
-    let y = newPage();
-    y = sectionHead('Engagement Onboarding', y);
-    y = bodyText('The following details have been captured for your AceMQ professional services engagement. Your team will be contacted to confirm next steps within 1 business day.', y);
-    y += 8;
+    secN++;
+    y = newPage('AceMQ Onboarding Report', 'Engagement', ['Details', 'Participants', 'Schedule']);
+    y = secHead(secN, 'Engagement Onboarding', y);
+    y = para('The following details have been captured for your AceMQ professional services engagement. Your engagement manager will reach out within 1 business day to confirm scheduling and next steps.', y);
+    y += 5;
 
-    const engRows = [
+    y = tblHead(['Field', 'Value'], [60, CW - 60], y);
+    [
       ['Company', company],
       ['Lead Stakeholder', `${submitter.firstName} ${submitter.lastName}`],
       ['Email', submitter.email],
-      ...(submitter.phone ? [['Phone', submitter.phone]] : []),
-      ...(kickoffDate ? [['Est. Kickoff Date', kickoffDate]] : []),
-      ...(teamTimezone ? [['Team Timezone', teamTimezone]] : []),
-      ...(schedulingPref ? [['Scheduling Preference', schedulingPref]] : []),
-    ];
-    engRows.forEach(([lbl, val], i) => { y = tableRow(lbl, val, y, i % 2 === 0, 60); });
+      ...(submitter.phone    ? [['Phone', submitter.phone]]                     : []),
+      ...(kickoffDate        ? [['Est. Kickoff Date', kickoffDate]]              : []),
+      ...(teamTimezone       ? [['Team Timezone', teamTimezone]]                 : []),
+      ...(schedulingPref     ? [['Scheduling Preference', schedulingPref]]       : []),
+      ...(timeSlotPref       ? [['Time Preference', timeSlotPref]]               : []),
+    ].forEach(([l, v], i) => { y = detRow(l, v, y, i % 2 === 0, 60); });
+    y += 9;
 
+    // Participants table
     if (engagementParticipants && engagementParticipants.length > 0) {
-      y += 8;
-      y = need(y, 20 + engagementParticipants.length * 9);
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); stA(mid);
-      doc.text('ENGAGEMENT PARTICIPANTS', ML + 4, y); y += 6;
-      sfA(black); doc.rect(ML, y, CW, 9, 'F');
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); stA(white);
-      doc.text('NAME', ML + 5, y + 6.2);
-      doc.text('EMAIL', ML + 68, y + 6.2);
-      doc.text('ROLE', ML + 140, y + 6.2);
-      y += 9;
+      if (y + 20 + engagementParticipants.length * 9 > H - 22) {
+        y = newPage('AceMQ Onboarding Report', 'Engagement', ['Participants']);
+      }
+      y = subHead('Engagement Participants', y);
+      y = tblHead(['Name / Title', 'Email', 'Role'], [60, 68, CW - 128], y);
       engagementParticipants.forEach((p, i) => {
-        sfA(i % 2 === 0 ? bgGray : white); sdA(border); doc.rect(ML, y, CW, 9, 'FD');
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(9); stA(ink);
-        const nameStr = `${p.firstName} ${p.lastName}`.trim() + (p.title ? ` · ${p.title}` : '');
-        doc.text(nameStr.length > 35 ? nameStr.substring(0, 33) + '…' : nameStr, ML + 5, y + 6);
-        stA(orange); doc.text(p.email.length > 38 ? p.email.substring(0, 36) + '…' : p.email, ML + 68, y + 6);
-        stA(mid); doc.text(p.role || '', ML + 140, y + 6);
+        sf(i % 2 === 0 ? bgGray : white); sd(border); doc.setLineWidth(0.2);
+        doc.rect(ML, y, CW, 9, 'FD');
+        const name = `${p.firstName} ${p.lastName}`.trim() + (p.title ? ` · ${p.title}` : '');
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); st(ink);
+        doc.text(name.length > 30 ? name.substring(0, 28) + '…' : name, ML + 3, y + 6.3);
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9); st([220, 100, 0]);
+        doc.text(p.email.length > 36 ? p.email.substring(0, 34) + '…' : p.email, ML + 63, y + 6.3);
+        st(mid); doc.text(p.role || '', ML + 131, y + 6.3);
         y += 9;
       });
-      y += 6;
+      y += 9;
     }
 
+    // Comments callout
     if (engagementDescription) {
-      y = need(y, 30);
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); stA(mid);
-      doc.text('OTHER COMMENTS / DETAILS', ML + 4, y); y += 6;
-      sfA(bgGray); sdA(border);
-      const dLines = doc.splitTextToSize(engagementDescription, CW - 14);
-      doc.roundedRect(ML, y - 2, CW, dLines.length * 5.2 + 10, 2, 2, 'FD');
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); stA(ink);
-      doc.text(dLines, ML + 7, y + 5);
-      y += dLines.length * 5.2 + 16;
+      if (y + 30 > H - 22) {
+        y = newPage('AceMQ Onboarding Report', 'Engagement', ['Comments']);
+      }
+      y = subHead('Additional Comments', y);
+      y = callBox(engagementDescription, y);
     }
 
-    y += 8;
-    y = need(y, 40);
-    y = sectionHead('What to Expect', y);
+    // What to expect
+    if (y + 62 > H - 22) {
+      y = newPage('AceMQ Onboarding Report', 'Engagement', ['Next Steps']);
+    }
+    y = subHead('What to Expect', y);
     y = stepBox(1, 'Initial Discovery Call', 'Your AceMQ engagement manager will schedule a discovery call to align on goals, scope, and timeline.', y);
     y = stepBox(2, 'Statement of Work', 'A tailored SOW will be prepared based on your engagement type and requirements.', y);
-    y = stepBox(3, 'Kickoff & Delivery', 'Your AceMQ team begins work per the agreed schedule. Progress updates are provided regularly.', y);
+    y = stepBox(3, 'Kickoff & Delivery', 'Your AceMQ team begins work per the agreed schedule. Progress updates provided throughout.', y);
   }
 
   // ════════════════════════════════════════════════════════════════════════════
-  // LICENSE SECTION
+  // LICENSE
   // ════════════════════════════════════════════════════════════════════════════
   if (services.license) {
-    let y = newPage();
-    y = sectionHead('License Configuration', y);
-    y = bodyText('Below is a summary of the license configuration you submitted. Contact licensing@acemq.com if any details need correction.', y);
-    y += 6;
+    secN++;
+    y = newPage('AceMQ Onboarding Report', 'License', ['Configuration', 'Usage', 'JFrog Access']);
+    y = secHead(secN, 'License Onboarding', y);
+    y = para('Below is a summary of your license configuration. Contact licensing@acemq.com to correct any details. JFrog credentials will be issued within 1 business day.', y);
+    y += 5;
 
-    const configRows = [
+    y = tblHead(['Field', 'Value'], [68, CW - 68], y);
+    [
       ['RabbitMQ Product', technical.rmqProduct],
       ['CPU Core Count', technical.cpuCoreCount],
       ['CPU Core Type', technical.cpuCoreType],
       ['Deployment Environment', technical.deploymentEnv],
-    ];
-    configRows.forEach(([lbl, val], i) => { y = tableRow(lbl, val, y, i % 2 === 0, 68); });
-    y += 10;
-
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); stA(mid);
-    doc.text('ENVIRONMENT USE', ML + 4, y); y += 5;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); stA(ink);
-    doc.text(envUse.length > 0 ? envUse.join('   ·   ') : '—', ML + 4, y); y += 9;
-
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); stA(mid);
-    doc.text('PACKAGING FORMATS', ML + 4, y); y += 5;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); stA(ink);
-    const pkgText = packaging.length > 0 ? packaging.join('   ·   ') : '—';
-    const pkgLines = doc.splitTextToSize(pkgText, CW - 8);
-    doc.text(pkgLines, ML + 4, y); y += pkgLines.length * 5.5 + 9;
+      ['Environment Use', envUse.length > 0 ? envUse.join(', ') : '—'],
+      ['Packaging Formats', packaging.length > 0 ? packaging.join(', ') : '—'],
+    ].forEach(([l, v], i) => { y = detRow(l, v, y, i % 2 === 0, 68); });
+    y += 9;
 
     if (comments) {
-      y = need(y, 30);
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); stA(mid);
-      doc.text('ADDITIONAL COMMENTS', ML + 4, y); y += 5;
-      sfA(bgGray); sdA(border);
-      const cLines = doc.splitTextToSize(comments, CW - 14);
-      doc.roundedRect(ML, y - 2, CW, cLines.length * 5.2 + 10, 2, 2, 'FD');
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); stA(ink);
-      doc.text(cLines, ML + 7, y + 5);
-      y += cLines.length * 5.2 + 16;
+      if (y + 30 > H - 22) { y = newPage('AceMQ Onboarding Report', 'License', []); }
+      y = subHead('Additional Comments', y);
+      y = callBox(comments, y);
     }
 
     if (portalUsers && portalUsers.length > 0) {
-      y = need(y, 40);
-      y = sectionHead('License Portal Users', y);
-      sfA(black); doc.rect(ML, y, CW, 9, 'F');
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); stA(white);
-      doc.text('EMAIL ADDRESS', ML + 5, y + 6); doc.text('ROLE', ML + 135, y + 6);
-      y += 9;
-      const allPUsers = [
+      if (y + 20 + (portalUsers.length + 2) * 9 > H - 22) {
+        y = newPage('AceMQ Onboarding Report', 'License', ['Portal Users']);
+      }
+      y = subHead('License Portal Users', y);
+      const puList = [
         { email: submitter.email, role: 'Submitter' },
         ...portalUsers.map(e => ({ email: e, role: 'Portal User' })),
       ];
-      allPUsers.forEach((u, i) => {
-        sfA(i % 2 === 0 ? bgGray : white); sdA(border); doc.rect(ML, y, CW, 9, 'FD');
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(9); stA(orange);
-        doc.text(u.email, ML + 5, y + 6.2); stA(mid);
-        doc.text(u.role, ML + 135, y + 6.2);
+      y = tblHead(['Email Address', 'Role'], [Math.round(CW * 0.72), Math.round(CW * 0.28)], y);
+      puList.forEach((u, i) => {
+        sf(i % 2 === 0 ? bgGray : white); sd(border); doc.setLineWidth(0.2);
+        doc.rect(ML, y, CW, 9, 'FD');
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9); st([220, 100, 0]);
+        doc.text(u.email, ML + 3, y + 6.3);
+        st(mid); doc.text(u.role, ML + Math.round(CW * 0.72) + 3, y + 6.3);
         y += 9;
       });
+      y += 9;
     }
 
-    // JFrog access page
-    y = newPage();
-    y = sectionHead('Accessing Your Images via AceMQ JFrog', y);
-    y = bodyText('Your RabbitMQ images are delivered via AceMQ\'s JFrog Artifactory — a smart Docker registry proxying Broadcom upstream. Authenticate once, then pull images normally.', y);
-    y += 6;
+    // ── JFrog Pull Guide ──────────────────────────────────────────────────────
+    y = newPage('AceMQ Onboarding Report', 'License', ['JFrog Pull Guide']);
+    y = subHead('Pulling Tanzu RabbitMQ via the AceMQ JFrog Cache', y);
+    y = para('As an AceMQ customer with active commercial Tanzu RabbitMQ entitlements, you pull Broadcom-published container images through AceMQ\'s JFrog Artifactory smart-remote repository. The repository fronts Broadcom\'s official registry (rabbitmq.packages.broadcom.com), caches images locally, and serves subsequent pulls from AceMQ\'s edge.', y);
+    y += 2;
+    y = para('This guide covers Docker, Podman, containerd, and Kubernetes pull workflows for commercial Tanzu RabbitMQ (4.2.x, 4.1.x, 4.0.x) and the community-edition maintenance series (3.13.x).', y);
+    y += 4;
 
-    sf(18,18,18); sd(40,40,40);
-    doc.roundedRect(ML, y, CW, 22, 2, 2, 'FD');
+    // Repository facts panel — 3×2 grid
+    const panelH = 30;
+    sf([245, 245, 245]); sd(border); doc.setLineWidth(0.2);
+    doc.roundedRect(ML, y, CW, panelH, 2, 2, 'FD');
+    const col3 = CW / 3;
     [
-      [ML + 6, 'REGISTRY', 'acemq.jfrog.io'],
-      [ML + 6 + CW / 3, 'REMOTE REPO', 'rabbitmq-docker-remote'],
-      [ML + 6 + (CW / 3) * 2, 'UPSTREAM', 'Broadcom / VMware Tanzu'],
+      [ML + 5,          'REGISTRY',         'acemq.jfrog.io'],
+      [ML + 5 + col3,   'REMOTE REPO',      'rabbitmq-docker-remote'],
+      [ML + 5 + col3*2, 'IMAGE PATH',       'vmware-tanzu-rabbitmq'],
     ].forEach(([x, lbl, val]) => {
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); stA(teal);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); st(orange);
       doc.text(lbl, x, y + 8);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); stA(white);
+      doc.setFont('courier', 'normal'); doc.setFontSize(8.5); st(ink);
       doc.text(val, x, y + 16);
     });
-    y += 28;
+    [
+      [ML + 5,          'UPSTREAM',         'rabbitmq.packages.broadcom.com'],
+      [ML + 5 + col3,   'TAG EXAMPLES',     '3.13.15  4.0.19  4.1.10  4.2.5'],
+      [ML + 5 + col3*2, 'VARIANT SUFFIXES', '-arm64  -fips  -arm64-fips'],
+    ].forEach(([x, lbl, val]) => {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); st(orange);
+      doc.text(lbl, x, y + 22);
+      doc.setFont('courier', 'normal'); doc.setFontSize(8); st(ink);
+      doc.text(val, x, y + 29);
+    });
+    y += panelH + 6;
 
+    y = callBox('Supported release streams: 4.2.x (current GA, latest patch 4.2.5) · 4.1.x (maintenance, latest 4.1.10) · 4.0.x (maintenance, latest 4.0.19) · 3.13.x (community-edition with commercial support, latest 3.13.15). Always confirm your stream is covered by your active subscription before adopting a new major version.', y);
+
+    // ── Step 1 ─────────────────────────────────────────────────────────────────
+    if (y + 55 > H - 22) { y = newPage('AceMQ Onboarding Report', 'License', ['JFrog Pull Guide']); }
     y = stepBox(1, 'Generate a JFrog Access Token',
-      'Log into acemq.jfrog.io → open your profile → Access Tokens → create a token and copy it.', y);
-    y = bodyText('Then authenticate Docker:', y, { size: 9, color: mid });
-    y = codeBlock('docker login acemq.jfrog.io\n  Username: <your JFrog username>\n  Password: <your JFrog access token>', y);
+      '1. Log in to https://acemq.jfrog.io\n2. Click your username (upper-right corner) and select Edit Profile\n3. Open the Identity Tokens section and click Generate Token\n4. Set scope to Scoped Token with read permission on rabbitmq-docker-remote (least-privilege)\n5. Set an expiration that matches your organisation\'s secret-rotation policy\n6. Copy the token immediately — JFrog displays it only once', y);
+    y = callBox('Token handling: Treat the token as a credential. Store it in a secrets manager (HashiCorp Vault, AWS Secrets Manager, Azure Key Vault, Kubernetes Secret) and never commit it to source control. For CI/CD pipelines, use a dedicated service-account user in JFrog rather than a personal account.', y);
 
-    y = need(y, 35);
-    y = stepBox(2, 'Pull a Tanzu RabbitMQ Image', 'The first pull retrieves from Broadcom and caches in JFrog. All future pulls are served directly from AceMQ.', y);
-    y = codeBlock('docker pull acemq.jfrog.io/rabbitmq-docker-remote/vmware-tanzu-rabbitmq:3.13.12', y);
+    // ── Step 2 ─────────────────────────────────────────────────────────────────
+    if (y + 50 > H - 22) { y = newPage('AceMQ Onboarding Report', 'License', ['JFrog Pull Guide']); }
+    y = stepBox(2, 'Authenticate Your Container Client',
+      'Use your JFrog username and the generated access token as the password. Credentials are stored in your client\'s standard config file (~/.docker/config.json or $XDG_RUNTIME_DIR/containers/auth.json) as a base64-encoded auth header.', y);
+    y = codeBox('# Docker\ndocker login acemq.jfrog.io\n  Username: <your JFrog username>\n  Password: <paste the JFrog access token>\n\n# Podman\npodman login acemq.jfrog.io\n\n# containerd / nerdctl\nnerdctl login acemq.jfrog.io', y);
 
-    y = need(y, 35);
-    y = stepBox(3, 'Kubernetes — Helm values.yaml', null, y);
-    y = codeBlock('image:\n  repository: acemq.jfrog.io/rabbitmq-docker-remote/vmware-tanzu-rabbitmq\n  tag: 3.13.12\n  pullPolicy: IfNotPresent', y);
+    // ── Step 3 ─────────────────────────────────────────────────────────────────
+    if (y + 60 > H - 22) { y = newPage('AceMQ Onboarding Report', 'License', ['JFrog Pull Guide']); }
+    y = stepBox(3, 'Pull a Tanzu RabbitMQ Image',
+      'Always specify an explicit semver tag in production. Broadcom does not publish a stable "latest" tag that crosses major version streams — pulling :latest is unpredictable.', y);
+    y = codeBox('# Standard (amd64)\ndocker pull acemq.jfrog.io/rabbitmq-docker-remote/vmware-tanzu-rabbitmq:3.13.15\n\n# ARM64 hosts\ndocker pull acemq.jfrog.io/rabbitmq-docker-remote/vmware-tanzu-rabbitmq:3.13.15-arm64\n\n# FIPS mode (amd64)\ndocker pull acemq.jfrog.io/rabbitmq-docker-remote/vmware-tanzu-rabbitmq:3.13.15-fips\n\n# FIPS on ARM64\ndocker pull acemq.jfrog.io/rabbitmq-docker-remote/vmware-tanzu-rabbitmq:3.13.15-arm64-fips', y);
+    y = callBox('Smart-remote caching: The first pull of an uncached tag fetches from Broadcom and may take longer. Once cached, the image is served from AceMQ\'s edge to all downstream clients. The cache is shared at the repository level — if another customer has already pulled that tag, your first pull will be fast.', y);
+
+    // ── Step 4 ─────────────────────────────────────────────────────────────────
+    if (y + 55 > H - 22) { y = newPage('AceMQ Onboarding Report', 'License', ['Kubernetes Deployment']); }
+    y = stepBox(4, 'Kubernetes — Create an imagePullSecret',
+      'Required once per namespace that runs RabbitMQ workloads. Kubernetes requires this secret before any pod can pull from a private registry.', y);
+    y = codeBox('kubectl create secret docker-registry acemq-jfrog-pull \\\n  --namespace rabbitmq-system \\\n  --docker-server=acemq.jfrog.io \\\n  --docker-username=<jfrog-username> \\\n  --docker-password=\'<access-token>\' \\\n  --docker-email=<your-email>', y);
+
+    // ── Step 5 ─────────────────────────────────────────────────────────────────
+    if (y + 55 > H - 22) { y = newPage('AceMQ Onboarding Report', 'License', ['Kubernetes Deployment']); }
+    y = stepBox(5, 'Reference the Secret in Your Workload',
+      'In a Pod, Deployment, or RabbitmqCluster CR, reference both the image and the pull secret.', y);
+    y = codeBox('spec:\n  imagePullSecrets:\n    - name: acemq-jfrog-pull\n  containers:\n    - name: rabbitmq\n      image: acemq.jfrog.io/rabbitmq-docker-remote/vmware-tanzu-rabbitmq:3.13.15\n      imagePullPolicy: IfNotPresent', y);
+
+    // ── Step 6 ─────────────────────────────────────────────────────────────────
+    if (y + 50 > H - 22) { y = newPage('AceMQ Onboarding Report', 'License', ['Kubernetes Deployment']); }
+    y = stepBox(6, 'Helm Values Override',
+      'If you install Tanzu RabbitMQ via Helm, override the image and pull-secret values to point at the AceMQ cache.', y);
+    y = codeBox('rabbitmqImage:\n  registry: acemq.jfrog.io\n  repository: rabbitmq-docker-remote/vmware-tanzu-rabbitmq\n  tag: "3.13.15"\n  pullSecrets:\n    - acemq-jfrog-pull', y);
+
+    // ── Step 7 ─────────────────────────────────────────────────────────────────
+    if (y + 60 > H - 22) { y = newPage('AceMQ Onboarding Report', 'License', ['Production Best Practices']); }
+    y = stepBox(7, 'Production Best Practice — Pin by Digest',
+      'Tags are mutable; digests are not. For audited or compliance-bound deployments, pin by SHA256 digest to guarantee bit-for-bit reproducibility.', y);
+    y = codeBox('# Get the digest after pulling\ndocker pull acemq.jfrog.io/rabbitmq-docker-remote/vmware-tanzu-rabbitmq:3.13.15\ndocker inspect --format=\'{{index .RepoDigests 0}}\' \\\n  acemq.jfrog.io/rabbitmq-docker-remote/vmware-tanzu-rabbitmq:3.13.15\n\n# Use digest in a Kubernetes manifest (tag retained for readability)\nimage: acemq.jfrog.io/rabbitmq-docker-remote/vmware-tanzu-rabbitmq:3.13.15@sha256:<digest>', y);
+    y = callBox('Tag-and-digest hybrid: For human-readability plus immutability, you can specify both — vmware-tanzu-rabbitmq:3.13.15@sha256:abc123.... The container runtime ignores the tag for pull purposes and uses only the digest, but tooling and humans can still read the version.', y);
+
+    // ── Troubleshooting ────────────────────────────────────────────────────────
+    if (y + 55 > H - 22) { y = newPage('AceMQ Onboarding Report', 'License', ['Troubleshooting']); }
+    y = subHead('Troubleshooting', y);
+    y = callBox('401 Unauthorized: Re-run docker login. Tokens expire if you set an expiration during creation. Confirm your AceMQ JFrog account has read permission on rabbitmq-docker-remote.\n\nmanifest unknown / not found: Verify the tag exists via the JFrog UI (Artifacts → rabbitmq-docker-remote → vmware-tanzu-rabbitmq). Tags are case-sensitive; Tanzu variant suffixes are lowercase.\n\nErrImagePull / ImagePullBackOff (Kubernetes): Confirm the imagePullSecret exists in the same namespace as the pod and is referenced in the pod spec. Run: kubectl describe pod <name> -n <namespace> to see the underlying registry error.\n\nEgress / firewall failures: Ensure outbound TCP/443 to acemq.jfrog.io is permitted. JFrog may serve image layers from a CDN endpoint distinct from the primary hostname — contact AceMQ if layer downloads fail after a successful manifest pull.\n\nSlow first pull, fast subsequent: Expected behaviour. The first pull of an uncached tag fetches from Broadcom; subsequent pulls hit the AceMQ-side cache.', y);
   }
 
   // ════════════════════════════════════════════════════════════════════════════
-  // SUPPORT SECTION
+  // SUPPORT
   // ════════════════════════════════════════════════════════════════════════════
   if (services.support || services.engagement) {
-    let y = newPage();
-    y = sectionHead('Your Two Support Portals', y);
-    y = bodyText('Your AceMQ RabbitMQ support subscription gives you access to two portals, each with a distinct purpose.', y);
-    y += 8;
+    secN++;
+    y = newPage('AceMQ Onboarding Report', 'Support Portal', ['Portals', 'Getting Started', 'Users']);
+    y = secHead(secN, 'Support Portal Onboarding', y);
+    y = para('Your AceMQ RabbitMQ support subscription provides access to two distinct portals. Invitation emails will be sent to each provisioned user within 1 business day.', y);
+    y += 5;
 
-    sfA(black); doc.roundedRect(ML, y, CW, 48, 3, 3, 'F');
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); stA(teal);
-    doc.text('HOME BASE — USE THIS FIRST', ML + 7, y + 9);
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(13.5); stA(white);
-    doc.text('AceMQ RabbitMQ Support Portal', ML + 7, y + 19);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); st(185,185,185);
-    doc.text(doc.splitTextToSize('Knowledge base & AI agent, healthcheck scheduler, training resources, and extended support.', CW - 16), ML + 7, y + 28);
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); stA(orange);
-    doc.text('rabbitmq-support.portal.acemq.com', ML + 7, y + 43);
-    y += 54;
-
-    sfA(bgGray); sdA(border); doc.roundedRect(ML, y, CW, 48, 3, 3, 'FD');
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); st(150,150,150);
-    doc.text('TICKET PORTAL — FOR RAISING SUPPORT TICKETS ONLY', ML + 7, y + 9);
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(13.5); stA(ink);
-    doc.text('Jira Support Portal', ML + 7, y + 19);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); stA(mid);
-    doc.text(doc.splitTextToSize('Use this portal exclusively for creating, updating, and tracking support tickets.', CW - 16), ML + 7, y + 28);
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); stA(orange);
-    doc.text('support.acemq.com/rabbitmq', ML + 7, y + 43);
-    y += 54;
-
-    sf(255,248,235); doc.setDrawColor(255,195,120);
-    doc.roundedRect(ML, y, CW, 40, 2, 2, 'FD');
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); st(180,80,0);
-    doc.text('Quick Reference', ML + 6, y + 8);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); stA(mid);
-    doc.text('Knowledge base, AI help, training, healthcheck', ML + 6, y + 17);
-    doc.text('   ->  rabbitmq-support.portal.acemq.com',       ML + 6, y + 23);
-    doc.text('Raise or track a support ticket',                 ML + 6, y + 31);
-    doc.text('   ->  support.acemq.com/rabbitmq',              ML + 6, y + 37);
-    y += 46;
+    // Portal overview table
+    y = tblHead(['Portal', 'URL', 'Purpose'], [55, 68, CW - 123], y);
+    [
+      ['AceMQ RabbitMQ Support Portal', 'rabbitmq-support.portal.acemq.com', 'Knowledge base, AI agent, healthcheck, training'],
+      ['Jira Ticket Portal',            'support.acemq.com/rabbitmq',         'Create & track support tickets only'],
+    ].forEach(([name, url, purpose], i) => {
+      sf(i % 2 === 0 ? bgGray : white); sd(border); doc.setLineWidth(0.2);
+      doc.rect(ML, y, CW, 11, 'FD');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); st(ink);
+      doc.text(name, ML + 3, y + 7.5);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); st([220, 100, 0]);
+      doc.text(url, ML + 58, y + 7.5);
+      st(body); doc.text(purpose, ML + 126, y + 7.5);
+      y += 11;
+    });
+    y += 9;
 
     // Getting started
-    y = newPage();
-    y = sectionHead('Getting Started', y);
-    y = bodyText('Follow these steps to get set up on both portals. You will receive separate invitation emails for each portal.', y);
-    y += 6;
-    y = stepBox(1, 'Receive Your Invitation Emails', 'Each provisioned user will receive welcome emails from noreply@acemq.com within 1 business day — one for the AceMQ RabbitMQ Support Portal and one for the Jira ticket portal. Check spam if they don\'t arrive.', y);
-    y = stepBox(2, 'Set Your Password', 'Click the secure link in each email. You\'ll be prompted to create a password. Use at least 12 characters.', y);
-    y = stepBox(3, 'Log In to the AceMQ RabbitMQ Support Portal', 'Navigate to rabbitmq-support.portal.acemq.com — this is your home base for knowledge base, AI agent, healthcheck scheduler, and training.', y);
-    y = stepBox(4, 'Log In to the Jira Ticket Portal', 'Navigate to support.acemq.com/rabbitmq to access your ticket queue. Use this portal to raise or track support tickets.', y);
-    y = stepBox(5, 'Search Before You Ticket', 'Before raising a ticket, search the knowledge base — our AI agent and runbooks resolve many common issues instantly.', y);
-
-    // Ticket submission + severity
-    y = newPage();
-    y = sectionHead('Submitting a Support Ticket', y);
-    y = bodyText('When you need to raise a ticket, go to support.acemq.com/rabbitmq. Thorough information upfront helps our engineers respond faster.', y);
-    y += 6;
-    y = stepBox(1, 'Go to support.acemq.com/rabbitmq', 'Log in to the Jira ticket portal.', y);
-    y = stepBox(2, 'Click "Create" or "New Ticket"', 'Select the appropriate issue type and project.', y);
-    y = stepBox(3, 'Set the Correct Severity Level', 'Choose the severity that best matches your issue (see table below).', y);
-    y = stepBox(4, 'Describe Your Issue in Detail', 'Include: RabbitMQ version, Erlang version, cluster size, full error messages, steps to reproduce, and recent changes.', y);
-    y = stepBox(5, 'Attach Supporting Files', 'Attach log files, config snippets, or screenshots. Maximum 25 MB per attachment.', y);
-    y += 8;
-
-    sfA(black); doc.rect(ML, y, CW, 9, 'F');
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); stA(white);
-    doc.text('SEVERITY', ML + 5, y + 6.2); doc.text('DEFINITION', ML + 42, y + 6.2);
-    y += 9;
-    [
-      ['P1 — Critical', 'Production system down, data loss risk, or complete service outage. No workaround available.'],
-      ['P2 — High', 'Significant functionality degraded or partial outage. No acceptable workaround.'],
-      ['P3 — Medium', 'Non-critical functionality impacted. A workaround is available.'],
-      ['P4 — Low', 'General questions, best practice guidance, or feature requests.'],
-    ].forEach((row, i) => {
-      sfA(i % 2 === 0 ? bgGray : white); sdA(border); doc.rect(ML, y, CW, 10, 'FD');
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); stA(i === 0 ? orange : ink);
-      doc.text(row[0], ML + 5, y + 6.8);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); stA(mid);
-      doc.text(row[1], ML + 42, y + 6.8);
-      y += 10;
-    });
+    y = subHead('Getting Started', y);
+    y = stepBox(1, 'Receive Your Invitation Emails', 'Each provisioned user will receive emails from noreply@acemq.com — one per portal. Check spam if they don\'t arrive within 1 business day.', y);
+    y = stepBox(2, 'Set Your Password', 'Click the secure link in each email and create a strong password (minimum 12 characters).', y);
+    y = stepBox(3, 'Log In to the AceMQ RabbitMQ Support Portal', 'Navigate to rabbitmq-support.portal.acemq.com — your home for the knowledge base, AI agent, healthchecks, and training.', y);
+    y = stepBox(4, 'Log In to the Jira Ticket Portal', 'Navigate to support.acemq.com/rabbitmq to raise and track support tickets.', y);
+    y = stepBox(5, 'Search Before You Ticket', 'Use the knowledge base and AI agent to resolve common issues before raising a ticket.', y);
+    y += 4;
 
     // Provisioned users
-    y = newPage();
-    y = sectionHead('Provisioned Support Users', y);
-    y = bodyText(`The following users have been granted access to ${company} support portals. Each will receive invitation emails within 1 business day.`, y);
-    y += 6;
-
     const allUsers = [
       { firstName: submitter.firstName, lastName: submitter.lastName, email: submitter.email, role: 'Submitter' },
-      ...supportUsers.map(u => ({ ...u, role: 'Support User' })),
+      ...(supportUsers || []).map(u => ({ ...u, role: 'Support User' })),
     ];
-
-    sfA(black); doc.rect(ML, y, CW, 9, 'F');
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); stA(white);
-    doc.text('#', ML + 4, y + 6.2);
-    doc.text('NAME', ML + 14, y + 6.2);
-    doc.text('EMAIL ADDRESS', ML + 72, y + 6.2);
-    doc.text('ROLE', ML + 148, y + 6.2);
-    y += 9;
+    if (y + 20 + allUsers.length * 9 > H - 22) {
+      y = newPage('AceMQ Onboarding Report', 'Support Portal', ['Provisioned Users']);
+    }
+    y = subHead('Provisioned Support Users', y);
+    y = para(`The following users have been granted access to the ${company} support portals.`, y);
+    y += 2;
+    y = tblHead(['#', 'Name', 'Email', 'Role'], [10, 44, 78, CW - 132], y);
     allUsers.forEach((u, i) => {
-      sfA(i % 2 === 0 ? bgGray : white); sdA(border); doc.rect(ML, y, CW, 9, 'FD');
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); stA(mid);
-      doc.text(String(i + 1), ML + 4, y + 6);
-      stA(ink); doc.text(`${u.firstName} ${u.lastName}`.trim(), ML + 14, y + 6);
-      stA(orange); doc.text(u.email, ML + 72, y + 6);
-      stA(mid); doc.text(u.role, ML + 148, y + 6);
+      sf(i % 2 === 0 ? bgGray : white); sd(border); doc.setLineWidth(0.2);
+      doc.rect(ML, y, CW, 9, 'FD');
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); st(mid);
+      doc.text(String(i + 1), ML + 3, y + 6);
+      st(ink); doc.text(`${u.firstName} ${u.lastName}`.trim(), ML + 13, y + 6);
+      st([220, 100, 0]); doc.text(u.email, ML + 57, y + 6);
+      st(mid); doc.text(u.role, ML + 135, y + 6);
       y += 9;
     });
   }
 
   // ════════════════════════════════════════════════════════════════════════════
-  // FINAL PAGE — CONTACT
+  // CONTACT & NEXT STEPS
   // ════════════════════════════════════════════════════════════════════════════
-  let y = newPage();
-  y = sectionHead('Contact & Support', y);
+  secN++;
+  y = newPage('AceMQ Onboarding Report', 'Contact & Next Steps', []);
+  y = secHead(secN, 'Contact & Next Steps', y);
+  y = para('Your AceMQ team will be in touch within 1 business day of this submission. Use the contacts below for any immediate questions.', y);
+  y += 6;
+  y = tblHead(['Team', 'Contact'], [55, CW - 55], y);
   [
-    ['Onboarding', 'onboarding@acemq.com'],
+    ['Onboarding',     'onboarding@acemq.com'],
     ['Support Portal', 'rabbitmq-support.portal.acemq.com'],
     ['Raise a Ticket', 'support.acemq.com/rabbitmq'],
-    ['Licensing', 'licensing@acemq.com'],
-    ['General', 'support@acemq.com'],
-    ['Phone', '+1 305-204-2607'],
-  ].forEach(([lbl, val], i) => { y = tableRow(lbl, val, y, i % 2 === 0, 50); });
+    ['Licensing',      'licensing@acemq.com'],
+    ['General',        'support@acemq.com'],
+    ['Phone',          '+1 305-204-2607'],
+  ].forEach(([l, v], i) => { y = detRow(l, v, y, i % 2 === 0); });
 
   return doc;
 }
@@ -983,6 +1053,7 @@ export default function CombinedOnboarding() {
   const [kickoffDate, setKickoffDate] = useState('');
   const [teamTimezone, setTeamTimezone] = useState('');
   const [schedulingPref, setSchedulingPref] = useState('');
+  const [timeSlotPref, setTimeSlotPref] = useState('');
   const [engagementDescription, setEngagementDescription] = useState('');
 
   // ── License fields ──
@@ -1042,6 +1113,7 @@ export default function CombinedOnboarding() {
         kickoffDate,
         teamTimezone,
         schedulingPref,
+        timeSlotPref,
         engagementDescription,
         technical: { cpuCoreCount, cpuCoreType, deploymentEnv, rmqProduct },
         envUse,
@@ -1065,6 +1137,7 @@ export default function CombinedOnboarding() {
           kickoffDate,
           teamTimezone,
           schedulingPref,
+          timeSlotPref,
           engagementDescription,
           technical: { cpuCoreCount, cpuCoreType, deploymentEnv, rmqProduct },
           envUse,
@@ -1310,6 +1383,13 @@ export default function CombinedOnboarding() {
                   {SCHEDULING_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                 </select>
 
+                <p className="text-[1.4rem] font-[600] text-[#161616] mb-[1rem] mt-[1rem]">Engagement Session — Time Preference <span className="text-[#999] font-[400]">(optional)</span></p>
+                <select value={timeSlotPref} onChange={e => setTimeSlotPref(e.target.value)}
+                  className="w-full bg-white border border-[rgba(0,0,0,0.12)] rounded-[1rem] px-[1.6rem] py-[1.3rem] text-[1.6rem] text-black outline-none focus:border-[#FF6600] focus:shadow-[0_0_0_3px_rgba(255,102,0,0.08)] transition-all mb-[1rem] cursor-pointer">
+                  <option value="">Please Select</option>
+                  {TIME_SLOT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+
                 <p className="text-[1.4rem] font-[600] text-[#161616] mb-[1rem] mt-[1rem]">Other Comments or Details <span className="text-[#999] font-[400]">(optional)</span></p>
                 <TA
                   placeholder="Any other context, constraints, or goals for this engagement…"
@@ -1408,6 +1488,36 @@ export default function CombinedOnboarding() {
                   <span className="text-[#FF6600]">{workEmail}</span> is included automatically.
                 </QSub>
 
+                {/* JFrog Pull Guide reference panel */}
+                <div className="bg-[#f8f8f8] border border-[rgba(0,0,0,0.08)] rounded-[1.4rem] p-[2rem] mb-[2.8rem]">
+                  <div className="flex items-start gap-[1.4rem]">
+                    <span className="text-[2.4rem] mt-[0.2rem] flex-shrink-0">📦</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[1.5rem] font-[700] text-[#161616] mb-[0.5rem]">Your report includes a complete JFrog Pull Guide</p>
+                      <p className="text-[1.3rem] text-[#666] leading-[1.6] mb-[1.4rem]">Once credentials are issued, your PDF onboarding report will contain step-by-step instructions for pulling Tanzu RabbitMQ images through AceMQ's JFrog Artifactory cache — including:</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-[1.5rem] gap-y-[0.5rem] mb-[1.6rem]">
+                        {[
+                          'Generate a scoped JFrog access token',
+                          'Authenticate Docker, Podman & nerdctl',
+                          'Pull with ARM64 & FIPS variant tags',
+                          'Create Kubernetes imagePullSecrets',
+                          'Helm values.yaml override for AceMQ cache',
+                          'Pin images by SHA256 digest for compliance',
+                        ].map(item => (
+                          <div key={item} className="flex items-start gap-[0.7rem] text-[1.25rem] text-[#444]">
+                            <span className="text-[#FF6600] font-[700] flex-shrink-0 mt-[0.1rem]">→</span>
+                            <span>{item}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-[0.8rem] px-[1.4rem] py-[1rem]">
+                        <p className="text-[1.1rem] font-[700] text-[#999] uppercase tracking-[0.06em] mb-[0.4rem]">Registry endpoint</p>
+                        <code className="text-[1.35rem] text-[#161616] font-[600]">acemq.jfrog.io / rabbitmq-docker-remote / vmware-tanzu-rabbitmq</code>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 <EmailTagInput emails={portalEmails} setEmails={setPortalEmails} />
 
                 {!stepList.includes('support-users') && submitError && (
@@ -1501,7 +1611,7 @@ export default function CombinedOnboarding() {
                     {services.engagement && (
                       <div className="flex items-start gap-[0.8rem] text-[1.3rem] text-[#444]">
                         <span className="text-[#FF6600] font-[700] flex-shrink-0">🤝</span>
-                        <span>Your engagement manager will schedule a discovery call.</span>
+                        <span>Our Program Manager will align a kickoff call.</span>
                       </div>
                     )}
                     {services.support && (
