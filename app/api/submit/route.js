@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 
 const HS_TOKEN        = process.env.HUBSPOT_TOKEN;
 const HS_PORTAL_ID    = process.env.HUBSPOT_PORTAL_ID    || '3925227';
-const HS_FORM_GUID    = process.env.HUBSPOT_FORM_GUID    || '219059aa-6367-4fbd-82b4-b000b9c88089';
+const HS_FORM_GUID    = process.env.HUBSPOT_FORM_GUID    || '325ed46c-382b-4d0e-89f3-6b17bf81df6e';
 
 const MJ_API_KEY      = process.env.MAILJET_API_KEY      || 'bbbbe6000d4db8179e4eafaa9b1c432b';
 const MJ_SECRET_KEY   = process.env.MAILJET_SECRET_KEY   || 'c72154c82ee4e1577e536302fb38e7a1';
