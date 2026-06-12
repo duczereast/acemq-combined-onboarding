@@ -1155,7 +1155,7 @@ export default function CombinedOnboarding() {
                   Your AceMQ
                 </h1>
                 <h1 className="text-[#8FD5CC] text-[4rem] leading-[1.15] font-[700] mb-[2.4rem]">
-                  Combined Onboarding
+                  Onboarding Process
                 </h1>
 
                 {/* Subtitle */}
