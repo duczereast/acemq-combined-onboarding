@@ -1061,7 +1061,6 @@ export default function CombinedOnboarding() {
           submitter: submitterInfo,
           company,
           services,
-          engagementType,
           engagementParticipants,
           kickoffDate,
           teamTimezone,
