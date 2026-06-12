@@ -10,6 +10,7 @@ const skModernist = localFont({
 export const metadata = {
   title: 'AceMQ — Onboarding',
   description: 'Complete your AceMQ onboarding for RabbitMQ engagement, support, and licensing.',
+  icons: { icon: '/favicon.svg' },
 };
 
 export default function RootLayout({ children }) {
