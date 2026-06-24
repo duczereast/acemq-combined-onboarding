@@ -99,7 +99,7 @@ function buildStepList(services) {
     list.push('license-usage');
     list.push('license-users');
   }
-  if (services.support || services.engagement) list.push('support-users');
+  if (services.support) list.push('support-users');
   return list;
 }
 
@@ -809,7 +809,7 @@ export default function CombinedOnboarding() {
                   label="Engagement Onboarding"
                   accent="#FF6600"
                   stepLabel="Section — Engagement"
-                  steps={['Engagement details', ...(services.license ? ['License config', 'License usage', 'License users'] : []), ...((services.support || services.engagement) ? ['Support users'] : [])]}
+                  steps={['Engagement details', ...(services.license ? ['License config', 'License usage', 'License users'] : []), ...(services.support ? ['Support users'] : [])]}
                 />
                 <QHead>Tell us about your engagement</QHead>
                 <QSub>Help us understand your team, goals, and scheduling so we can hit the ground running.</QSub>
