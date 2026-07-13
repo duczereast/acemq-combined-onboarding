@@ -8,6 +8,9 @@ const HS_FORM_GUID    = process.env.HUBSPOT_FORM_GUID    || '325ed46c-382b-4d0e-
 const MJ_API_KEY      = process.env.MAILJET_API_KEY      || 'bbbbe6000d4db8179e4eafaa9b1c432b';
 const MJ_SECRET_KEY   = process.env.MAILJET_SECRET_KEY   || 'c72154c82ee4e1577e536302fb38e7a1';
 
+const JFROG_URL       = process.env.JFROG_URL            || 'https://acemq.jfrog.io';
+const JFROG_TOKEN     = process.env.JFROG_ACCESS_TOKEN;
+
 const HS_BASE = 'https://api.hubapi.com';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -572,6 +575,75 @@ async function buildReportPdf({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// JFrog provisioning
+// ─────────────────────────────────────────────────────────────────────────────
+
+function slugifyCompany(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+async function jfrog(method, path, body) {
+  const res = await fetch(`${JFROG_URL}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${JFROG_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = text; }
+  return { status: res.status, data };
+}
+
+async function ensureJFrogGroup(groupName) {
+  const { status } = await jfrog('GET', `/access/api/v2/groups/${groupName}`);
+  if (status === 200) return;
+  await jfrog('PUT', `/access/api/v2/groups/${groupName}`, {
+    group_name: groupName,
+    description: `Customer access group — ${groupName.replace('customer-', '')}`,
+    auto_join: false,
+  });
+}
+
+async function provisionJFrogUser(email, groupName) {
+  const username = email.toLowerCase().trim();
+  const { status } = await jfrog('GET', `/access/api/v2/users/${username}`);
+
+  if (status === 200) {
+    // User exists — patch group membership
+    await jfrog('PATCH', `/access/api/v2/users/${username}`, { groups: [groupName] });
+  } else {
+    // New user — create with group; JFrog sends invitation email automatically
+    await jfrog('POST', '/access/api/v2/users', {
+      username,
+      email: username,
+      password: null,
+      groups: [groupName],
+      realm: 'internal',
+      profileUpdatable: true,
+      disableUIAccess: false,
+      internalPasswordDisabled: false,
+    });
+  }
+}
+
+async function provisionJFrogAccess({ company, submitterEmail, portalUsers }) {
+  const groupName = `customer-${slugifyCompany(company)}`;
+  await ensureJFrogGroup(groupName);
+
+  const emails = [...new Set([submitterEmail, ...(portalUsers || [])])].filter(Boolean);
+  const results = await Promise.allSettled(emails.map(e => provisionJFrogUser(e, groupName)));
+
+  const failed = results
+    .map((r, i) => r.status === 'rejected' ? `${emails[i]}: ${r.reason?.message}` : null)
+    .filter(Boolean);
+
+  return { groupName, provisioned: emails.length, failed };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST handler
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -654,6 +726,24 @@ export async function POST(request) {
     } catch (mjErr) {
       console.error('Mailjet error:', mjErr);
       errors.push(`Mailjet: ${mjErr.message}`);
+    }
+
+    // JFrog provisioning — runs when license onboarding is selected
+    if (services.license && JFROG_TOKEN) {
+      try {
+        const jfrogResult = await provisionJFrogAccess({
+          company,
+          submitterEmail: submitter.email,
+          portalUsers: portalUsers || [],
+        });
+        if (jfrogResult.failed.length > 0) {
+          jfrogResult.failed.forEach(f => errors.push(`JFrog: ${f}`));
+        }
+        console.log(`JFrog: provisioned ${jfrogResult.provisioned} user(s) to ${jfrogResult.groupName}`);
+      } catch (jfrogErr) {
+        console.error('JFrog provisioning error:', jfrogErr);
+        errors.push(`JFrog: ${jfrogErr.message}`);
+      }
     }
 
     return NextResponse.json({
