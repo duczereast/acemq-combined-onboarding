@@ -909,7 +909,7 @@ async function provisionFuseBasePortal({ company, engagementParticipants, submit
   // 1. New workspace — each portal needs its own
   const ws = await fusebaseTool(sessionId, 'createWorkspace', {
     orgId: FUSEBASE_ORG_ID,
-    body: { title: company },
+    body: { title: `${company} - Internal Space` },
   });
 
   // 2. Duplicate master portal into the new workspace
@@ -917,7 +917,7 @@ async function provisionFuseBasePortal({ company, engagementParticipants, submit
   const { portal } = await fusebaseTool(sessionId, 'duplicatePortal', {
     orgId:    FUSEBASE_ORG_ID,
     portalId: FUSEBASE_MASTER_PORTAL_ID,
-    body: { domain, workspaceId: ws.id, name: company },
+    body: { domain, workspaceId: ws.id, name: `${company} - Engagement Portal` },
   });
 
   // 3. Invite all engagement users as clients with full access
