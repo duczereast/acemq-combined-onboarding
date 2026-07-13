@@ -174,8 +174,15 @@ async function submitHubSpotForm(submitter, company, services, extra = {}) {
 // Mailjet helper
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function sendMailjetEmail({ toEmail, toName, subject, html, pdfBase64, pdfFilename }) {
+async function sendMailjetEmail({ toEmail, toName, subject, html, pdfBase64, pdfFilename, attachments }) {
   const credentials = Buffer.from(`${MJ_API_KEY}:${MJ_SECRET_KEY}`).toString('base64');
+
+  // attachments: [{ base64, filename }] — takes priority over legacy pdfBase64/pdfFilename
+  const atts = attachments
+    ? attachments.map(a => ({ ContentType: 'application/pdf', Filename: a.filename, Base64Content: a.base64 }))
+    : pdfBase64
+      ? [{ ContentType: 'application/pdf', Filename: pdfFilename || 'onboarding.pdf', Base64Content: pdfBase64 }]
+      : [];
 
   const body = {
     Messages: [
@@ -184,9 +191,7 @@ async function sendMailjetEmail({ toEmail, toName, subject, html, pdfBase64, pdf
         To:          [{ Email: toEmail, Name: toName }],
         Subject:     subject,
         HTMLPart:    html,
-        Attachments: pdfBase64
-          ? [{ ContentType: 'application/pdf', Filename: pdfFilename || 'onboarding.pdf', Base64Content: pdfBase64 }]
-          : [],
+        Attachments: atts,
       },
     ],
   };
@@ -321,6 +326,170 @@ function buildEmailHtml({ submitter, company, services }) {
         </td></tr>
         <tr><td style="background:#000;padding:20px 40px;text-align:center;">
           <p style="margin:0;color:#666;font-size:11px;">© ${new Date().getFullYear()} AceMQ, an Ace8 Company · onboarding@acemq.com · acemq.com</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}
+
+function buildCustomerEmailHtml({ submitter, company, services, engagementParticipants,
+  kickoffDate, teamTimezone, schedulingPref, technical, envUse, packaging, portalUsers, supportUsers }) {
+
+  const svcList = [
+    services.engagement && '🤝 Engagement',
+    services.license    && '🔑 License',
+    services.support    && '🎫 Support',
+  ].filter(Boolean);
+
+  const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  let sectionsHtml = '';
+
+  if (services.engagement) {
+    const leadRow = { firstName: submitter.firstName, lastName: submitter.lastName, title: submitter.jobTitle || '', email: submitter.email, role: 'Lead Stakeholder' };
+    const allParticipants = [leadRow, ...(engagementParticipants || [])];
+    const participantRows = allParticipants.map(p => `
+      <tr style="border-top:1px solid #eee;">
+        <td style="padding:8px 12px;font-size:13px;">${p.firstName || ''} ${p.lastName || ''}</td>
+        <td style="padding:8px 12px;font-size:13px;color:#666;">${p.title || p.jobTitle || '—'}</td>
+        <td style="padding:8px 12px;font-size:13px;color:#FF6600;">${p.email}</td>
+        <td style="padding:8px 12px;font-size:13px;">${p.role}</td>
+      </tr>`).join('');
+
+    sectionsHtml += `
+    <div style="margin-bottom:28px;">
+      <p style="margin:0 0 8px;color:#FF6600;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;font-weight:700;">Engagement</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#f8f8f8;border-radius:6px;overflow:hidden;margin-bottom:12px;">
+        ${kickoffDate ? `<tr><td style="padding:8px 12px;font-size:12px;color:#999;font-weight:700;text-transform:uppercase;width:38%;">Kickoff Date</td><td style="padding:8px 12px;font-size:13px;">${kickoffDate}</td></tr>` : ''}
+        ${teamTimezone ? `<tr style="border-top:1px solid #eee;"><td style="padding:8px 12px;font-size:12px;color:#999;font-weight:700;text-transform:uppercase;">Team Timezone</td><td style="padding:8px 12px;font-size:13px;">${teamTimezone}</td></tr>` : ''}
+        ${schedulingPref ? `<tr style="border-top:1px solid #eee;"><td style="padding:8px 12px;font-size:12px;color:#999;font-weight:700;text-transform:uppercase;">Scheduling</td><td style="padding:8px 12px;font-size:13px;">${schedulingPref}</td></tr>` : ''}
+      </table>
+      <p style="margin:12px 0 6px;font-size:12px;font-weight:700;color:#161616;">Participants</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border-radius:6px;overflow:hidden;">
+        <tr style="background:#161616;">
+          <td style="padding:8px 12px;font-size:11px;color:#fff;font-weight:700;">Name</td>
+          <td style="padding:8px 12px;font-size:11px;color:#fff;font-weight:700;">Title</td>
+          <td style="padding:8px 12px;font-size:11px;color:#fff;font-weight:700;">Email</td>
+          <td style="padding:8px 12px;font-size:11px;color:#fff;font-weight:700;">Role</td>
+        </tr>
+        ${participantRows}
+      </table>
+    </div>`;
+  }
+
+  if (services.license) {
+    const licRows = [
+      technical?.rmqProduct    && ['RabbitMQ Product', technical.rmqProduct],
+      technical?.cpuCoreCount  && ['CPU Cores', `${technical.cpuCoreCount} ${technical.cpuCoreType || ''}`.trim()],
+      technical?.deploymentEnv && ['Deployment', technical.deploymentEnv],
+      envUse?.length           && ['Environment Use', envUse.join(', ')],
+      packaging?.length        && ['Packaging', packaging.join(', ')],
+    ].filter(Boolean);
+
+    const licRowsHtml = licRows.map(([l, v], i) => `
+      <tr style="${i > 0 ? 'border-top:1px solid #eee;' : ''}">
+        <td style="padding:8px 12px;font-size:12px;color:#999;font-weight:700;text-transform:uppercase;width:38%;">${l}</td>
+        <td style="padding:8px 12px;font-size:13px;">${v}</td>
+      </tr>`).join('');
+
+    const portalRowsHtml = (portalUsers || []).map(e => `
+      <tr style="border-top:1px solid #eee;"><td style="padding:8px 12px;font-size:13px;color:#FF6600;">${e}</td></tr>`).join('');
+
+    sectionsHtml += `
+    <div style="margin-bottom:28px;">
+      <p style="margin:0 0 8px;color:#FF6600;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;font-weight:700;">License</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#f8f8f8;border-radius:6px;overflow:hidden;margin-bottom:12px;">
+        ${licRowsHtml}
+      </table>
+      ${portalUsers?.length ? `
+      <p style="margin:12px 0 6px;font-size:12px;font-weight:700;color:#161616;">Portal Users</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#f8f8f8;border-radius:6px;overflow:hidden;">
+        <tr style="background:#161616;"><td style="padding:8px 12px;font-size:11px;color:#fff;font-weight:700;">Email</td></tr>
+        ${portalRowsHtml}
+      </table>` : ''}
+      <p style="margin:12px 0 0;font-size:13px;color:#666;">Your JFrog Artifactory credentials will be emailed to each portal user shortly. A setup guide is attached to this email.</p>
+    </div>`;
+  }
+
+  if (services.support) {
+    const supportRowsHtml = (supportUsers || []).map((u, i) => `
+      <tr style="${i > 0 ? 'border-top:1px solid #eee;' : ''}">
+        <td style="padding:8px 12px;font-size:13px;">${u.firstName || ''} ${u.lastName || ''}</td>
+        <td style="padding:8px 12px;font-size:13px;color:#FF6600;">${u.email}</td>
+      </tr>`).join('');
+
+    sectionsHtml += `
+    <div style="margin-bottom:28px;">
+      <p style="margin:0 0 8px;color:#FF6600;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;font-weight:700;">Support</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#f8f8f8;border-radius:6px;overflow:hidden;">
+        <tr style="background:#161616;">
+          <td style="padding:8px 12px;font-size:11px;color:#fff;font-weight:700;">Name</td>
+          <td style="padding:8px 12px;font-size:11px;color:#fff;font-weight:700;">Email</td>
+        </tr>
+        ${supportRowsHtml}
+      </table>
+      <p style="margin:12px 0 0;font-size:13px;color:#666;">Your support portal access has been provisioned. You will receive a separate email from our support system.</p>
+    </div>`;
+  }
+
+  return `
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f9f9f9;font-family:Helvetica,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9f9f9;">
+    <tr><td align="center" style="padding:40px 20px;">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 20px rgba(0,0,0,0.08);">
+        <tr><td style="background:#000;padding:28px 40px;">
+          <p style="margin:0;color:#8FD5CC;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;">THE #1 RABBITMQ PARTNER</p>
+          <p style="margin:6px 0 0;color:#fff;font-size:24px;font-weight:700;">AceMQ</p>
+        </td></tr>
+        <tr><td style="background:#FF6600;height:4px;"></td></tr>
+        <tr><td style="padding:40px;">
+          <p style="margin:0 0 8px;color:#FF6600;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;">Onboarding Confirmed</p>
+          <h1 style="margin:0 0 8px;color:#161616;font-size:26px;font-weight:700;">Welcome, ${submitter.firstName}!</h1>
+          <p style="margin:0 0 24px;color:#555;font-size:15px;line-height:1.6;">
+            Thank you for completing your onboarding with AceMQ. Your submission has been received and our team will be in touch within <strong>1 business day</strong> to get everything kicked off.
+          </p>
+
+          <!-- Summary card -->
+          <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8f8f8;border-radius:8px;margin-bottom:28px;">
+            <tr><td style="padding:20px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:7px 0;color:#999;font-size:12px;font-weight:700;text-transform:uppercase;width:40%;">Company</td>
+                  <td style="padding:7px 0;color:#161616;font-size:14px;font-weight:700;">${company}</td>
+                </tr>
+                <tr>
+                  <td style="padding:7px 0;color:#999;font-size:12px;font-weight:700;text-transform:uppercase;">Services</td>
+                  <td style="padding:7px 0;color:#161616;font-size:14px;">${svcList.join('&nbsp;&nbsp;·&nbsp;&nbsp;')}</td>
+                </tr>
+                <tr>
+                  <td style="padding:7px 0;color:#999;font-size:12px;font-weight:700;text-transform:uppercase;">Date</td>
+                  <td style="padding:7px 0;color:#161616;font-size:14px;">${date}</td>
+                </tr>
+              </table>
+            </td></tr>
+          </table>
+
+          <!-- Per-service detail sections -->
+          ${sectionsHtml}
+
+          <div style="background:#fff8f3;border-left:3px solid #FF6600;border-radius:4px;padding:16px 20px;margin-bottom:24px;">
+            <p style="margin:0;font-size:13px;color:#555;line-height:1.6;">
+              Your full onboarding report is attached to this email as a PDF for your records.
+              ${services.license ? 'The JFrog Pull Guide is also attached to help you get started with your license.' : ''}
+            </p>
+          </div>
+
+          <p style="margin:0;font-size:14px;color:#555;line-height:1.6;">
+            Questions? Reach out to us at <a href="mailto:support@acemq.com" style="color:#FF6600;">support@acemq.com</a>
+          </p>
+        </td></tr>
+        <tr><td style="background:#000;padding:20px 40px;text-align:center;">
+          <p style="margin:0;color:#666;font-size:11px;">© ${new Date().getFullYear()} AceMQ, an Ace8 Company · support@acemq.com · acemq.com</p>
         </td></tr>
       </table>
     </td></tr>
@@ -1036,7 +1205,9 @@ export async function POST(request) {
       errors.push(`PDF: ${pdfErr.message}`);
     }
 
-    // Mailjet — send to onboarding@acemq.com
+    const reportFilename = `AceMQ-Onboarding-${company.replace(/\s+/g, '-')}.pdf`;
+
+    // Mailjet — send to onboarding@acemq.com (internal team)
     try {
       const selectedServices = [
         services.engagement && 'Engagement',
@@ -1050,11 +1221,43 @@ export async function POST(request) {
         subject:     `New Onboarding — ${company} (${selectedServices})`,
         html:        buildEmailHtml({ submitter, company, services }),
         pdfBase64,
-        pdfFilename: `AceMQ-Onboarding-${company.replace(/\s+/g, '-')}.pdf`,
+        pdfFilename: reportFilename,
       });
     } catch (mjErr) {
       console.error('Mailjet error:', mjErr);
       errors.push(`Mailjet: ${mjErr.message}`);
+    }
+
+    // Mailjet — send confirmation to lead stakeholder (customer)
+    try {
+      const customerAtts = [];
+      if (pdfBase64) {
+        customerAtts.push({ base64: pdfBase64, filename: reportFilename });
+      }
+      // Attach JFrog guide if license was selected
+      if (services.license) {
+        try {
+          const guidePath = path.join(process.cwd(), 'public', 'AceMQ-JFrog-RabbitMQ-Pull-Guide.pdf');
+          const guideBase64 = fs.readFileSync(guidePath).toString('base64');
+          customerAtts.push({ base64: guideBase64, filename: 'AceMQ-JFrog-RabbitMQ-Pull-Guide.pdf' });
+        } catch (_) {}
+      }
+
+      const submitterName = `${submitter.firstName} ${submitter.lastName}`.trim();
+      await sendMailjetEmail({
+        toEmail:     submitter.email,
+        toName:      submitterName,
+        subject:     `Your AceMQ Onboarding is Confirmed — ${company}`,
+        html:        buildCustomerEmailHtml({
+          submitter, company, services,
+          engagementParticipants, kickoffDate, teamTimezone, schedulingPref,
+          technical, envUse, packaging, portalUsers, supportUsers,
+        }),
+        attachments: customerAtts,
+      });
+    } catch (custMjErr) {
+      console.error('Customer confirmation email error:', custMjErr);
+      errors.push(`CustomerEmail: ${custMjErr.message}`);
     }
 
     // JFrog provisioning — runs when license onboarding is selected
