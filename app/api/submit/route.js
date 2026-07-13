@@ -671,7 +671,7 @@ async function ensureJFrogPermission(slug, groupName) {
   return true; // newly created
 }
 
-async function sendJFrogInviteEmail(email, company) {
+async function sendJFrogInviteEmail(email, tempPwd, company) {
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#333;">
       <div style="background:#FF6B00;padding:24px 32px;">
@@ -679,18 +679,31 @@ async function sendJFrogInviteEmail(email, company) {
       </div>
       <div style="padding:32px;">
         <h2 style="margin:0 0 16px;font-size:22px;">Your RabbitMQ Artifact Access is Ready</h2>
-        <p style="margin:0 0 16px;line-height:1.6;">
+        <p style="margin:0 0 20px;line-height:1.6;">
           Your account on the AceMQ JFrog Artifactory platform has been provisioned as part of
           the <strong>${company}</strong> license onboarding. You now have access to the
           AceMQ RabbitMQ repositories.
         </p>
-        <p style="margin:0 0 24px;line-height:1.6;">
-          To set up your password and log in for the first time, click the button below and use
-          the <strong>Forgot Password</strong> option with this email address.
-        </p>
+        <table style="width:100%;border-collapse:collapse;margin-bottom:24px;background:#f8f8f8;border-radius:6px;">
+          <tr>
+            <td style="padding:12px 16px;font-size:13px;color:#666;width:120px;">Platform</td>
+            <td style="padding:12px 16px;font-size:14px;"><a href="https://acemq.jfrog.io" style="color:#FF6B00;">acemq.jfrog.io</a></td>
+          </tr>
+          <tr style="border-top:1px solid #eee;">
+            <td style="padding:12px 16px;font-size:13px;color:#666;">Username</td>
+            <td style="padding:12px 16px;font-size:14px;font-family:monospace;">${email}</td>
+          </tr>
+          <tr style="border-top:1px solid #eee;">
+            <td style="padding:12px 16px;font-size:13px;color:#666;">Temp Password</td>
+            <td style="padding:12px 16px;font-size:14px;font-family:monospace;letter-spacing:1px;">${tempPwd}</td>
+          </tr>
+        </table>
         <a href="https://acemq.jfrog.io" style="display:inline-block;background:#FF6B00;color:#fff;text-decoration:none;padding:12px 28px;border-radius:4px;font-weight:700;font-size:15px;">
-          Go to AceMQ Artifactory →
+          Log In to AceMQ Artifactory →
         </a>
+        <p style="margin:20px 0 0;font-size:13px;color:#888;line-height:1.5;">
+          You will be prompted to change your password after your first login.
+        </p>
         <hr style="margin:32px 0;border:none;border-top:1px solid #eee;">
         <p style="margin:0;font-size:13px;color:#888;">
           AceMQ · an ace8 company<br>
@@ -718,8 +731,8 @@ async function provisionJFrogUser(email, groupName, company) {
     await jfrog('PATCH', `/access/api/v2/users/${username}`, { groups });
     return 'updated';
   } else {
-    // New user — create with a random password; user must set their own via "forgot password"
-    const tempPwd = require('crypto').randomBytes(16).toString('hex') + 'Aa1!';
+    // New user — create with a temporary password and send it via email
+    const tempPwd = require('crypto').randomBytes(10).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) + 'Aa1!';
     await jfrog('POST', '/access/api/v2/users', {
       username,
       email: username,
@@ -728,9 +741,8 @@ async function provisionJFrogUser(email, groupName, company) {
       realm: 'internal',
       profileUpdatable: true,
       disableUIAccess: false,
-      internalPasswordDisabled: true,
     });
-    await sendJFrogInviteEmail(username, company);
+    await sendJFrogInviteEmail(username, tempPwd, company);
     return 'invited';
   }
 }
