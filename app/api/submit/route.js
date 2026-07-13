@@ -576,7 +576,21 @@ async function buildReportPdf({
 
 // ─────────────────────────────────────────────────────────────────────────────
 // JFrog provisioning
+//
+// Pattern inferred from all existing customers:
+//   group:       customer-{slug}
+//   permission:  perm-{slug}-rmq-access
+//   repos:       ossrabbitmq-rabbitmq-oss, rabbitmq-docker-remote,
+//                rabbitmq-helmoci-remote, rabbitmq-operator-docker-remote
+//   access:      read + annotate + write
 // ─────────────────────────────────────────────────────────────────────────────
+
+const JFROG_REPOS = [
+  'ossrabbitmq-rabbitmq-oss',
+  'rabbitmq-docker-remote',
+  'rabbitmq-helmoci-remote',
+  'rabbitmq-operator-docker-remote',
+];
 
 function slugifyCompany(name) {
   return name.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -599,12 +613,34 @@ async function jfrog(method, path, body) {
 
 async function ensureJFrogGroup(groupName) {
   const { status } = await jfrog('GET', `/access/api/v2/groups/${groupName}`);
-  if (status === 200) return;
+  if (status === 200) return false; // already existed
   await jfrog('PUT', `/access/api/v2/groups/${groupName}`, {
     group_name: groupName,
     description: `Customer access group — ${groupName.replace('customer-', '')}`,
     auto_join: false,
   });
+  return true; // newly created
+}
+
+async function ensureJFrogPermission(slug, groupName) {
+  const permName = `perm-${slug}-rmq-access`;
+  const { status } = await jfrog('GET', `/artifactory/api/v2/security/permissions/${encodeURIComponent(permName)}`);
+  if (status === 200) return false; // already existed
+
+  await jfrog('PUT', `/artifactory/api/v2/security/permissions/${encodeURIComponent(permName)}`, {
+    name: permName,
+    repo: {
+      actions: {
+        groups: {
+          [groupName]: ['read', 'annotate', 'write'],
+        },
+      },
+      repositories: JFROG_REPOS,
+      'include-patterns': ['**'],
+      'exclude-patterns': [],
+    },
+  });
+  return true; // newly created
 }
 
 async function provisionJFrogUser(email, groupName) {
@@ -614,8 +650,9 @@ async function provisionJFrogUser(email, groupName) {
   if (status === 200) {
     // User exists — patch group membership
     await jfrog('PATCH', `/access/api/v2/users/${username}`, { groups: [groupName] });
+    return 'updated';
   } else {
-    // New user — create with group; JFrog sends invitation email automatically
+    // New user — JFrog sends invitation email automatically
     await jfrog('POST', '/access/api/v2/users', {
       username,
       email: username,
@@ -626,21 +663,32 @@ async function provisionJFrogUser(email, groupName) {
       disableUIAccess: false,
       internalPasswordDisabled: false,
     });
+    return 'invited';
   }
 }
 
 async function provisionJFrogAccess({ company, submitterEmail, portalUsers }) {
-  const groupName = `customer-${slugifyCompany(company)}`;
-  await ensureJFrogGroup(groupName);
+  const slug      = slugifyCompany(company);
+  const groupName = `customer-${slug}`;
 
-  const emails = [...new Set([submitterEmail, ...(portalUsers || [])])].filter(Boolean);
+  const [groupCreated, permCreated] = await Promise.all([
+    ensureJFrogGroup(groupName),
+    ensureJFrogPermission(slug, groupName),
+  ]);
+
+  const emails  = [...new Set([submitterEmail, ...(portalUsers || [])])].filter(Boolean);
   const results = await Promise.allSettled(emails.map(e => provisionJFrogUser(e, groupName)));
 
-  const failed = results
-    .map((r, i) => r.status === 'rejected' ? `${emails[i]}: ${r.reason?.message}` : null)
-    .filter(Boolean);
+  const invited = [], updated = [], failed = [];
+  results.forEach((r, i) => {
+    if (r.status === 'fulfilled') {
+      (r.value === 'invited' ? invited : updated).push(emails[i]);
+    } else {
+      failed.push(`${emails[i]}: ${r.reason?.message}`);
+    }
+  });
 
-  return { groupName, provisioned: emails.length, failed };
+  return { groupName, permName: `perm-${slug}-rmq-access`, groupCreated, permCreated, invited, updated, failed };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -730,19 +778,65 @@ export async function POST(request) {
 
     // JFrog provisioning — runs when license onboarding is selected
     if (services.license && JFROG_TOKEN) {
+      let jfrogResult = null;
+      let jfrogError  = null;
+
       try {
-        const jfrogResult = await provisionJFrogAccess({
+        jfrogResult = await provisionJFrogAccess({
           company,
           submitterEmail: submitter.email,
           portalUsers: portalUsers || [],
         });
-        if (jfrogResult.failed.length > 0) {
-          jfrogResult.failed.forEach(f => errors.push(`JFrog: ${f}`));
-        }
-        console.log(`JFrog: provisioned ${jfrogResult.provisioned} user(s) to ${jfrogResult.groupName}`);
-      } catch (jfrogErr) {
-        console.error('JFrog provisioning error:', jfrogErr);
-        errors.push(`JFrog: ${jfrogErr.message}`);
+        jfrogResult.failed.forEach(f => errors.push(`JFrog: ${f}`));
+        console.log(`JFrog: group=${jfrogResult.groupName} invited=${jfrogResult.invited.length} updated=${jfrogResult.updated.length} failed=${jfrogResult.failed.length}`);
+      } catch (err) {
+        console.error('JFrog provisioning error:', err);
+        jfrogError = err.message;
+        errors.push(`JFrog: ${err.message}`);
+      }
+
+      // Mailjet notification to onboarding team
+      try {
+        const success = !jfrogError && jfrogResult?.failed.length === 0;
+        const subject = success
+          ? `✅ JFrog Provisioned — ${company}`
+          : `⚠️ JFrog Provisioning Issue — ${company}`;
+
+        const allUsers = [...(jfrogResult?.invited || []), ...(jfrogResult?.updated || [])];
+        const html = `
+<!DOCTYPE html><html><body style="font-family:Helvetica,Arial,sans-serif;background:#f9f9f9;margin:0;padding:20px;">
+<table width="600" style="background:#fff;border-radius:8px;padding:32px;margin:auto;">
+  <tr><td>
+    <p style="margin:0 0 4px;color:#FF6600;font-size:11px;letter-spacing:.1em;text-transform:uppercase;">JFrog Access Provisioning</p>
+    <h2 style="margin:0 0 20px;color:#161616;">${success ? '✅ Provisioning Complete' : '⚠️ Provisioning Had Errors'}</h2>
+    <table width="100%" style="border-collapse:collapse;margin-bottom:20px;">
+      <tr style="background:#f0f0f0;"><td style="padding:8px 12px;font-size:12px;color:#666;width:40%;">Company</td><td style="padding:8px 12px;font-size:13px;font-weight:bold;">${company}</td></tr>
+      <tr><td style="padding:8px 12px;font-size:12px;color:#666;">Submitter</td><td style="padding:8px 12px;font-size:13px;">${submitter.firstName} ${submitter.lastName} &lt;${submitter.email}&gt;</td></tr>
+      <tr style="background:#f0f0f0;"><td style="padding:8px 12px;font-size:12px;color:#666;">JFrog Group</td><td style="padding:8px 12px;font-size:13px;font-family:monospace;">${jfrogResult?.groupName || '—'}</td></tr>
+      <tr><td style="padding:8px 12px;font-size:12px;color:#666;">Permission Target</td><td style="padding:8px 12px;font-size:13px;font-family:monospace;">${jfrogResult?.permName || '—'}</td></tr>
+      <tr style="background:#f0f0f0;"><td style="padding:8px 12px;font-size:12px;color:#666;">Group Created</td><td style="padding:8px 12px;font-size:13px;">${jfrogResult?.groupCreated ? 'Yes (new)' : 'No (existing)'}</td></tr>
+      <tr><td style="padding:8px 12px;font-size:12px;color:#666;">Perm Target Created</td><td style="padding:8px 12px;font-size:13px;">${jfrogResult?.permCreated ? 'Yes (new)' : 'No (existing)'}</td></tr>
+    </table>
+    ${allUsers.length > 0 ? `
+    <p style="font-weight:bold;margin:16px 0 8px;">Users Provisioned (${allUsers.length})</p>
+    <ul style="margin:0;padding-left:20px;">${allUsers.map(e => `<li style="font-size:13px;padding:2px 0;">${e}${jfrogResult?.invited?.includes(e) ? ' <span style="color:#FF6600;font-size:11px;">(invited)</span>' : ' <span style="color:#666;font-size:11px;">(added to group)</span>'}</li>`).join('')}</ul>` : ''}
+    ${jfrogResult?.failed?.length > 0 ? `
+    <p style="font-weight:bold;margin:16px 0 8px;color:#c0392b;">Failed (${jfrogResult.failed.length})</p>
+    <ul style="margin:0;padding-left:20px;">${jfrogResult.failed.map(f => `<li style="font-size:13px;color:#c0392b;padding:2px 0;">${f}</li>`).join('')}</ul>` : ''}
+    ${jfrogError ? `<p style="color:#c0392b;margin-top:16px;font-size:13px;"><strong>Error:</strong> ${jfrogError}</p>` : ''}
+    <p style="margin-top:24px;font-size:12px;color:#999;">Sent automatically by AceMQ Onboarding · onboarding.acemq.com</p>
+  </td></tr>
+</table>
+</body></html>`;
+
+        await sendMailjetEmail({
+          toEmail: 'onboarding@acemq.com',
+          toName:  'AceMQ Onboarding Team',
+          subject,
+          html,
+        });
+      } catch (notifyErr) {
+        console.error('JFrog notification email error:', notifyErr);
       }
     }
 
