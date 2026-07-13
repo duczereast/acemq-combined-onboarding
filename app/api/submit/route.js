@@ -18,6 +18,10 @@ const JIRA_EMAIL_ADDR     = process.env.JIRA_EMAIL;
 const JIRA_API_TOKEN      = process.env.JIRA_API_TOKEN;
 const JIRA_SERVICE_DESK_ID = process.env.JIRA_SERVICE_DESK_ID || '1';
 
+const FUSEBASE_TOKEN             = process.env.FUSEBASE_API_TOKEN;
+const FUSEBASE_ORG_ID            = process.env.FUSEBASE_ORG_ID            || 'u25yx9';
+const FUSEBASE_MASTER_PORTAL_ID  = process.env.FUSEBASE_MASTER_PORTAL_ID  || 'jiiin9o066qk6uh194n3icwl';
+const FUSEBASE_MCP_URL           = 'https://gate-mcp.thefusebase.com/mcp';
 const HS_BASE = 'https://api.hubapi.com';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -838,6 +842,106 @@ async function provisionJSMAccess({ company, submitterEmail, portalUsers }) {
   return { orgId: org.id, orgName: org.name, orgCreated, usersAdded: emails };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// FuseBase portal provisioning (via Gate MCP HTTP/SSE)
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function fusebaseInit() {
+  const res = await fetch(FUSEBASE_MCP_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${FUSEBASE_TOKEN}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/event-stream',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0', id: 'init', method: 'initialize',
+      params: {
+        protocolVersion: '2024-11-05', capabilities: {},
+        clientInfo: { name: 'acemq-onboarding', version: '1.0' },
+      },
+    }),
+  });
+  const sessionId = res.headers.get('mcp-session-id');
+  if (!sessionId) throw new Error('FuseBase: no MCP session ID returned');
+  return sessionId;
+}
+
+async function fusebaseTool(sessionId, opId, args) {
+  const res = await fetch(FUSEBASE_MCP_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${FUSEBASE_TOKEN}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/event-stream',
+      'mcp-session-id': sessionId,
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0', id: opId, method: 'tools/call',
+      params: { name: 'tool_call', arguments: { opId, args } },
+    }),
+  });
+
+  const text = await res.text();
+  const match = text.match(/^data: (.+)$/m);
+  if (!match) throw new Error(`FuseBase ${opId}: unexpected response format`);
+
+  const envelope = JSON.parse(match[1]);
+  if (envelope.result?.isError) {
+    const msg = envelope.result.content?.[0]?.text || 'unknown error';
+    throw new Error(`FuseBase ${opId}: ${msg}`);
+  }
+
+  const raw = JSON.parse(envelope.result?.content?.[0]?.text || '{}');
+  if (!raw.ok) throw new Error(`FuseBase ${opId} failed: ${JSON.stringify(raw.error)}`);
+  return raw.data;
+}
+
+async function provisionFuseBasePortal({ company, engagementParticipants, submitterEmail }) {
+  const slug   = slugifyCompany(company);
+  const domain = `${slug}.portal.acemq.com`;
+
+  const sessionId = await fusebaseInit();
+
+  // 1. New workspace — each portal needs its own
+  const ws = await fusebaseTool(sessionId, 'createWorkspace', {
+    orgId: FUSEBASE_ORG_ID,
+    body: { title: company },
+  });
+
+  // 2. Duplicate master portal into the new workspace
+  const portal = await fusebaseTool(sessionId, 'duplicatePortal', {
+    orgId:    FUSEBASE_ORG_ID,
+    portalId: FUSEBASE_MASTER_PORTAL_ID,
+    body: { domain, workspaceId: ws.id, name: company },
+  });
+
+  // 3. Invite all engagement users as clients with full access
+  const seen = new Set();
+  const invitations = [];
+  const addInvitee = (email, fullName) => {
+    const e = (email || '').toLowerCase().trim();
+    if (!e || seen.has(e)) return;
+    seen.add(e);
+    invitations.push({ email: e, fullName: fullName?.trim() || e, orgRole: 'client', isFullAccess: true });
+  };
+
+  addInvitee(submitterEmail, null);
+  (engagementParticipants || []).forEach(p =>
+    addInvitee(p.email, `${p.firstName || ''} ${p.lastName || ''}`)
+  );
+
+  if (invitations.length > 0) {
+    await fusebaseTool(sessionId, 'bulkInviteToPortal', {
+      orgId:    FUSEBASE_ORG_ID,
+      portalId: portal.id,
+      body: { invitations, background: false },
+    });
+  }
+
+  return { domain, workspaceId: ws.id, portalId: portal.id, usersInvited: invitations.length };
+}
+
 async function provisionJFrogAccess({ company, submitterEmail, portalUsers }) {
   const slug      = slugifyCompany(company);
   const groupName = `customer-${slug}`;
@@ -1025,6 +1129,21 @@ export async function POST(request) {
       } catch (jsmErr) {
         console.error('JSM provisioning error:', jsmErr);
         errors.push(`JSM: ${jsmErr.message}`);
+      }
+    }
+
+    // FuseBase portal provisioning — runs when engagement onboarding is selected
+    if (services.engagement && FUSEBASE_TOKEN) {
+      try {
+        const fbResult = await provisionFuseBasePortal({
+          company,
+          engagementParticipants: engagementParticipants || [],
+          submitterEmail: submitter.email,
+        });
+        console.log(`FuseBase: portal=${fbResult.domain} portalId=${fbResult.portalId} users=${fbResult.usersInvited}`);
+      } catch (fbErr) {
+        console.error('FuseBase portal provisioning error:', fbErr);
+        errors.push(`FuseBase: ${fbErr.message}`);
       }
     }
 
