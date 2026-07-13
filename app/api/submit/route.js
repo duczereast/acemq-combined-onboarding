@@ -702,10 +702,9 @@ async function provisionJFrogAccess({ company, submitterEmail, portalUsers }) {
   const slug      = slugifyCompany(company);
   const groupName = `customer-${slug}`;
 
-  const [groupCreated, permCreated] = await Promise.all([
-    ensureJFrogGroup(groupName),
-    ensureJFrogPermission(slug, groupName),
-  ]);
+  // Group must exist before creating the permission target that references it
+  const groupCreated = await ensureJFrogGroup(groupName);
+  const permCreated  = await ensureJFrogPermission(slug, groupName);
 
   const emails  = [...new Set([submitterEmail, ...(portalUsers || [])])].filter(Boolean);
   const results = await Promise.allSettled(emails.map(e => provisionJFrogUser(e, groupName)));
