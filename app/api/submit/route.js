@@ -660,7 +660,7 @@ async function ensureJFrogPermission(slug, groupName) {
     repo: {
       actions: {
         groups: {
-          [groupName]: ['read', 'annotate', 'write'],
+          [groupName]: ['read', 'write'],
         },
       },
       repositories: JFROG_REPOS,
@@ -671,7 +671,43 @@ async function ensureJFrogPermission(slug, groupName) {
   return true; // newly created
 }
 
-async function provisionJFrogUser(email, groupName) {
+async function sendJFrogInviteEmail(email, company) {
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#333;">
+      <div style="background:#FF6B00;padding:24px 32px;">
+        <span style="color:#fff;font-size:20px;font-weight:700;letter-spacing:1px;">AceMQ</span>
+      </div>
+      <div style="padding:32px;">
+        <h2 style="margin:0 0 16px;font-size:22px;">Your RabbitMQ Artifact Access is Ready</h2>
+        <p style="margin:0 0 16px;line-height:1.6;">
+          Your account on the AceMQ JFrog Artifactory platform has been provisioned as part of
+          the <strong>${company}</strong> license onboarding. You now have access to the
+          AceMQ RabbitMQ repositories.
+        </p>
+        <p style="margin:0 0 24px;line-height:1.6;">
+          To set up your password and log in for the first time, click the button below and use
+          the <strong>Forgot Password</strong> option with this email address.
+        </p>
+        <a href="https://acemq.jfrog.io" style="display:inline-block;background:#FF6B00;color:#fff;text-decoration:none;padding:12px 28px;border-radius:4px;font-weight:700;font-size:15px;">
+          Go to AceMQ Artifactory →
+        </a>
+        <hr style="margin:32px 0;border:none;border-top:1px solid #eee;">
+        <p style="margin:0;font-size:13px;color:#888;">
+          AceMQ · an ace8 company<br>
+          Questions? Contact <a href="mailto:support@acemq.com" style="color:#FF6B00;">support@acemq.com</a>
+        </p>
+      </div>
+    </div>`;
+
+  await sendMailjetEmail({
+    toEmail: email,
+    toName:  email,
+    subject: 'Your AceMQ RabbitMQ Artifact Access is Ready',
+    html,
+  });
+}
+
+async function provisionJFrogUser(email, groupName, company) {
   const username = email.toLowerCase().trim();
   const { status, data } = await jfrog('GET', `/access/api/v2/users/${username}`);
 
@@ -682,7 +718,7 @@ async function provisionJFrogUser(email, groupName) {
     await jfrog('PATCH', `/access/api/v2/users/${username}`, { groups });
     return 'updated';
   } else {
-    // New user — create with a random password; user must set their own via JFrog's "forgot password"
+    // New user — create with a random password; user must set their own via "forgot password"
     const tempPwd = require('crypto').randomBytes(16).toString('hex') + 'Aa1!';
     await jfrog('POST', '/access/api/v2/users', {
       username,
@@ -694,6 +730,7 @@ async function provisionJFrogUser(email, groupName) {
       disableUIAccess: false,
       internalPasswordDisabled: true,
     });
+    await sendJFrogInviteEmail(username, company);
     return 'invited';
   }
 }
@@ -707,7 +744,7 @@ async function provisionJFrogAccess({ company, submitterEmail, portalUsers }) {
   const permCreated  = await ensureJFrogPermission(slug, groupName);
 
   const emails  = [...new Set([submitterEmail, ...(portalUsers || [])])].filter(Boolean);
-  const results = await Promise.allSettled(emails.map(e => provisionJFrogUser(e, groupName)));
+  const results = await Promise.allSettled(emails.map(e => provisionJFrogUser(e, groupName, company)));
 
   const invited = [], updated = [], failed = [];
   results.forEach((r, i) => {
