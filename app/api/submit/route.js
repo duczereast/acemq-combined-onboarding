@@ -936,37 +936,11 @@ async function provisionFuseBasePortal({ company, engagementParticipants, submit
   );
 
   if (invitations.length > 0) {
-    const inviteResult = await fusebaseTool(sessionId, 'bulkInviteToPortal', {
+    await fusebaseTool(sessionId, 'bulkInviteToPortal', {
       orgId:    FUSEBASE_ORG_ID,
       portalId: portal.id,
       body: { invitations, background: false },
     });
-
-    // Send each successfully invited user a welcome email with their magic link
-    const portalUrl = `https://${domain}`;
-    await Promise.allSettled(
-      (inviteResult.results || [])
-        .filter(r => r.status === 'success' && r.magicLink)
-        .map(r => {
-          const inv = invitations.find(i => i.email === r.email) || {};
-          return sendMailjetEmail({
-            toEmail: r.email,
-            toName:  inv.fullName || r.email,
-            subject: `You've been invited to the ${company} Engagement Portal`,
-            html: `
-              <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#161616;">
-                <img src="https://acemq.com/wp-content/uploads/2024/07/acemq-logo-black.svg" alt="AceMQ" style="height:32px;margin-bottom:24px;" />
-                <h2 style="margin:0 0 16px;">Welcome to your AceMQ Engagement Portal</h2>
-                <p style="margin:0 0 12px;">Hi ${inv.fullName || r.email},</p>
-                <p style="margin:0 0 20px;">You've been added to the <strong>${company} Engagement Portal</strong>. Use the button below to access it — no password required.</p>
-                <a href="${r.magicLink}" style="display:inline-block;background:#FF6600;color:#fff;text-decoration:none;padding:12px 28px;border-radius:24px;font-weight:600;margin-bottom:24px;">Access Your Portal →</a>
-                <p style="margin:0 0 8px;font-size:13px;color:#666;">Or copy this link: <a href="${r.magicLink}" style="color:#FF6600;">${r.magicLink}</a></p>
-                <hr style="border:none;border-top:1px solid #eee;margin:24px 0;" />
-                <p style="margin:0;font-size:12px;color:#999;">AceMQ Team · <a href="https://acemq.com" style="color:#999;">acemq.com</a></p>
-              </div>`,
-          });
-        })
-    );
   }
 
   return { domain, workspaceId: ws.id, portalId: portal.id, usersInvited: invitations.length };
