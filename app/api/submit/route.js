@@ -231,8 +231,9 @@ function buildNoteBody({ submitter, company, services,
     if (kickoffDate)           note += `Est. Kickoff: ${kickoffDate}\n`;
     if (teamTimezone)          note += `Timezone: ${teamTimezone}\n`;
     if (schedulingPref)        note += `Scheduling: ${schedulingPref}\n`;
+    note += `Participants:\n`;
+    note += `  ${submitter.firstName} ${submitter.lastName}${submitter.jobTitle ? ` · ${submitter.jobTitle}` : ''} · ${submitter.email} · Lead Stakeholder\n`;
     if (engagementParticipants?.length) {
-      note += `Participants:\n`;
       engagementParticipants.forEach(p => {
         note += `  ${p.firstName} ${p.lastName}${p.title ? ` · ${p.title}` : ''} · ${p.email} · ${p.role}\n`;
       });
@@ -511,7 +512,9 @@ async function buildReportPdf({
     ].filter(([, v]) => v);
     if (engRows.length) drawKVTable(engRows);
 
-    if (engagementParticipants?.length) {
+    {
+      const leadRow = { firstName: submitter.firstName, lastName: submitter.lastName, title: submitter.jobTitle || '', email: submitter.email, role: 'Lead Stakeholder' };
+      const allParticipants = [leadRow, ...(engagementParticipants || [])];
       drawSubHead('Participants');
       const PC = [BW * 0.25, BW * 0.22, BW * 0.28, BW * 0.25];
       const PRH = 15;
@@ -523,7 +526,7 @@ async function buildReportPdf({
         xo += PC[ci];
       });
       y -= PRH;
-      engagementParticipants.forEach((p, i) => {
+      allParticipants.forEach((p, i) => {
         ensureSpace(PRH + 2);
         if (i % 2 === 1) page.drawRectangle({ x: ML, y: y - PRH, width: BW, height: PRH, color: ROWALT });
         page.drawLine({ start: { x: ML, y: y - PRH }, end: { x: ML + BW, y: y - PRH }, thickness: 0.4, color: BRDR });
@@ -897,7 +900,7 @@ async function fusebaseTool(sessionId, opId, args) {
   return raw.data;
 }
 
-async function provisionFuseBasePortal({ company, engagementParticipants, submitterEmail }) {
+async function provisionFuseBasePortal({ company, engagementParticipants, submitterEmail, submitterName }) {
   const slug   = slugifyCompany(company);
   const domain = `${slug}.portal.acemq.com`;
 
@@ -910,7 +913,8 @@ async function provisionFuseBasePortal({ company, engagementParticipants, submit
   });
 
   // 2. Duplicate master portal into the new workspace
-  const portal = await fusebaseTool(sessionId, 'duplicatePortal', {
+  // duplicatePortal returns { portal: { id, domain, ... } }
+  const { portal } = await fusebaseTool(sessionId, 'duplicatePortal', {
     orgId:    FUSEBASE_ORG_ID,
     portalId: FUSEBASE_MASTER_PORTAL_ID,
     body: { domain, workspaceId: ws.id, name: company },
@@ -926,7 +930,7 @@ async function provisionFuseBasePortal({ company, engagementParticipants, submit
     invitations.push({ email: e, fullName: fullName?.trim() || e, orgRole: 'client', isFullAccess: true });
   };
 
-  addInvitee(submitterEmail, null);
+  addInvitee(submitterEmail, submitterName);
   (engagementParticipants || []).forEach(p =>
     addInvitee(p.email, `${p.firstName || ''} ${p.lastName || ''}`)
   );
@@ -1139,6 +1143,7 @@ export async function POST(request) {
           company,
           engagementParticipants: engagementParticipants || [],
           submitterEmail: submitter.email,
+          submitterName: `${submitter.firstName} ${submitter.lastName}`.trim(),
         });
         console.log(`FuseBase: portal=${fbResult.domain} portalId=${fbResult.portalId} users=${fbResult.usersInvited}`);
       } catch (fbErr) {
