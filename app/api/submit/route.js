@@ -805,11 +805,23 @@ async function createJSMOrg(companyName) {
   return org;
 }
 
-async function addUsersToJSMOrg(orgId, emails) {
-  // JSM accepts accountIds or emails (cloud supports email-based lookup)
-  await jira('POST', `/rest/servicedeskapi/organization/${orgId}/user`, {
-    usernames: emails, // legacy field — cloud also accepts this for email lookup
+async function resolveJSMAccountId(email) {
+  // Search for existing Atlassian account
+  const { data } = await jira('GET', `/rest/api/3/user/search?query=${encodeURIComponent(email)}&maxResults=1`);
+  if (Array.isArray(data) && data.length > 0) return data[0].accountId;
+
+  // Not found — create as a JSM portal customer (triggers Atlassian invite email)
+  const { data: customer } = await jira('POST', '/rest/servicedeskapi/customer', {
+    email,
+    fullName: email.split('@')[0],
   });
+  return customer?.accountId || null;
+}
+
+async function addUsersToJSMOrg(orgId, emails) {
+  const accountIds = (await Promise.all(emails.map(resolveJSMAccountId))).filter(Boolean);
+  if (accountIds.length === 0) return;
+  await jira('POST', `/rest/servicedeskapi/organization/${orgId}/user`, { accountIds });
 }
 
 async function provisionJSMAccess({ company, submitterEmail, portalUsers }) {
