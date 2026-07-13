@@ -518,6 +518,7 @@ export default function CombinedOnboarding() {
   const [stepIdx, setStepIdx] = useState(0);
   const [stepList, setStepList] = useState(['intro', 'contact', 'services']);
   const [submitting, setSubmitting] = useState(false);
+  const [processing, setProcessing] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [pdfB64, setPdfB64] = useState(null);
@@ -587,7 +588,9 @@ export default function CombinedOnboarding() {
 
   const handleSubmit = async () => {
     setSubmitting(true);
+    setProcessing(true);
     setSubmitError(null);
+    scrollTop();
     try {
       const res = await fetch('/api/submit', {
         method: 'POST',
@@ -620,6 +623,7 @@ export default function CombinedOnboarding() {
       if (data.pdfBase64) setPdfB64(data.pdfBase64);
       setSubmitted(true);
     } catch (err) {
+      setProcessing(false);
       setSubmitError(err.message);
     } finally {
       setSubmitting(false);
@@ -653,7 +657,7 @@ export default function CombinedOnboarding() {
       </nav>
 
       {/* PROGRESS BAR */}
-      {!submitted && !isIntro && stepIdx > 0 && (
+      {!submitted && !processing && !isIntro && stepIdx > 0 && (
         <div className="bg-white border-b border-[rgba(0,0,0,0.06)] px-[5.6rem] py-[1.4rem] flex-shrink-0 relative z-10">
           <div className="flex justify-between text-[1.2rem] text-[#999999] mb-[0.8rem]">
             <span>Step {currentFormStepNum} of {totalFormSteps}</span>
@@ -672,7 +676,7 @@ export default function CombinedOnboarding() {
         }`}
           style={{ padding: isIntro ? 'clamp(4rem, 6vw, 6.4rem) clamp(3.2rem, 6vw, 7.2rem)' : 'clamp(3.2rem, 5vw, 5.2rem) clamp(2.4rem, 5vw, 5.6rem)' }}>
 
-          {!submitted && !isIntro && (
+          {!submitted && !processing && !isIntro && (
             <div className="absolute top-0 left-0 right-0 h-[3px] bg-[#FF6600]" />
           )}
 
@@ -1060,6 +1064,40 @@ export default function CombinedOnboarding() {
             )}
 
             {/* ── SUCCESS ── */}
+            {processing && !submitted && (
+              <div className="text-center py-[3rem]">
+                <div className="w-[7rem] h-[7rem] rounded-full border-[3px] border-[rgba(255,102,0,0.15)] border-t-[#FF6600] animate-spin mx-auto mb-[2.4rem]" />
+                <QHead>Setting Everything Up…</QHead>
+                <QSub className="max-w-[44rem] mx-auto mb-[3rem]">
+                  We're provisioning your services. This usually takes 15–30 seconds — please don't close this page.
+                </QSub>
+                <div className="flex flex-col gap-[1rem] max-w-[36rem] mx-auto text-left">
+                  {services.engagement && (
+                    <div className="flex items-center gap-[1.2rem] bg-[rgba(255,102,0,0.04)] border border-[rgba(255,102,0,0.15)] rounded-[1rem] px-[1.6rem] py-[1.2rem]">
+                      <div className="w-[1.6rem] h-[1.6rem] rounded-full border-[2px] border-[rgba(255,102,0,0.3)] border-t-[#FF6600] animate-spin flex-shrink-0" />
+                      <span className="text-[1.4rem] text-[#444]">Creating engagement portal…</span>
+                    </div>
+                  )}
+                  {services.license && (
+                    <div className="flex items-center gap-[1.2rem] bg-[rgba(91,184,173,0.06)] border border-[rgba(91,184,173,0.2)] rounded-[1rem] px-[1.6rem] py-[1.2rem]">
+                      <div className="w-[1.6rem] h-[1.6rem] rounded-full border-[2px] border-[rgba(91,184,173,0.3)] border-t-[#5bb8ad] animate-spin flex-shrink-0" />
+                      <span className="text-[1.4rem] text-[#444]">Provisioning JFrog access…</span>
+                    </div>
+                  )}
+                  {services.support && (
+                    <div className="flex items-center gap-[1.2rem] bg-[rgba(22,22,22,0.04)] border border-[rgba(22,22,22,0.1)] rounded-[1rem] px-[1.6rem] py-[1.2rem]">
+                      <div className="w-[1.6rem] h-[1.6rem] rounded-full border-[2px] border-[rgba(22,22,22,0.15)] border-t-[#161616] animate-spin flex-shrink-0" />
+                      <span className="text-[1.4rem] text-[#444]">Setting up support portal…</span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-[1.2rem] bg-white border border-[rgba(0,0,0,0.08)] rounded-[1rem] px-[1.6rem] py-[1.2rem]">
+                    <div className="w-[1.6rem] h-[1.6rem] rounded-full border-[2px] border-[rgba(0,0,0,0.1)] border-t-[#888] animate-spin flex-shrink-0" />
+                    <span className="text-[1.4rem] text-[#444]">Generating your PDF report…</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {submitted && (
               <div className="text-center py-[2rem]">
                 <div className="w-[6rem] h-[6rem] bg-[rgba(39,174,96,0.1)] rounded-full flex items-center justify-center mx-auto mb-[2rem]">
