@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import fs from 'fs';
+import path from 'path';
 
 const HS_TOKEN        = process.env.HUBSPOT_TOKEN;
 const HS_PORTAL_ID    = process.env.HUBSPOT_PORTAL_ID    || '3925227';
@@ -717,11 +719,19 @@ async function sendJFrogInviteEmail(email, tempPwd, company) {
       </div>
     </div>`;
 
+  let guidePdf = null;
+  try {
+    const guidePath = path.join(process.cwd(), 'public', 'AceMQ-JFrog-RabbitMQ-Pull-Guide.pdf');
+    guidePdf = fs.readFileSync(guidePath).toString('base64');
+  } catch (_) {}
+
   await sendMailjetEmail({
-    toEmail: email,
-    toName:  email,
-    subject: 'Your AceMQ RabbitMQ Artifact Access is Ready',
+    toEmail:     email,
+    toName:      email,
+    subject:     'Your AceMQ RabbitMQ Artifact Access is Ready',
     html,
+    pdfBase64:   guidePdf,
+    pdfFilename: 'AceMQ-JFrog-RabbitMQ-Pull-Guide.pdf',
   });
 }
 
