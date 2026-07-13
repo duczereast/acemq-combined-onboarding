@@ -111,15 +111,43 @@ async function createEngagementNote(contactId, companyId, noteBody) {
   return note;
 }
 
-async function submitHubSpotForm(submitter, company, services) {
+async function submitHubSpotForm(submitter, company, services, extra = {}) {
+  const selectedServices = [
+    services.engagement && 'Engagement',
+    services.license    && 'License',
+    services.support    && 'Support',
+  ].filter(Boolean).join(', ');
+
   const fields = [
     { name: 'email',     value: submitter.email },
     { name: 'firstname', value: submitter.firstName },
     { name: 'lastname',  value: submitter.lastName },
     { name: 'company',   value: company },
   ];
+
   if (submitter.phone)    fields.push({ name: 'phone',    value: submitter.phone });
   if (submitter.jobTitle) fields.push({ name: 'jobtitle', value: submitter.jobTitle });
+
+  fields.push({ name: 'services_selected', value: selectedServices });
+
+  if (services.license && extra.technical) {
+    const t = extra.technical;
+    if (t.rmqProduct)    fields.push({ name: 'rmq_product',    value: t.rmqProduct });
+    if (t.cpuCoreCount)  fields.push({ name: 'cpu_core_count', value: String(t.cpuCoreCount) });
+    if (t.cpuCoreType)   fields.push({ name: 'cpu_core_type',  value: t.cpuCoreType });
+    if (t.deploymentEnv) fields.push({ name: 'deployment_env', value: t.deploymentEnv });
+    if (extra.envUse?.length)    fields.push({ name: 'environment_use',  value: extra.envUse.join(', ') });
+    if (extra.packaging?.length) fields.push({ name: 'packaging_format', value: extra.packaging.join(', ') });
+    if (extra.portalUsers?.length) fields.push({ name: 'portal_users', value: extra.portalUsers.join(', ') });
+    if (extra.comments)  fields.push({ name: 'message', value: extra.comments });
+  }
+
+  if (services.engagement) {
+    if (extra.kickoffDate)    fields.push({ name: 'kickoff_date',   value: extra.kickoffDate });
+    if (extra.teamTimezone)   fields.push({ name: 'team_timezone',  value: extra.teamTimezone });
+    if (extra.schedulingPref) fields.push({ name: 'scheduling_pref', value: extra.schedulingPref });
+    if (extra.engagementDescription) fields.push({ name: 'message', value: extra.engagementDescription });
+  }
 
   await fetch(
     `https://api.hsforms.com/submissions/v3/integration/submit/${HS_PORTAL_ID}/${HS_FORM_GUID}`,
@@ -735,6 +763,11 @@ export async function POST(request) {
         if (contactId) {
           await createEngagementNote(contactId, companyId, noteBody);
         }
+
+        await submitHubSpotForm(submitter, company, services, {
+          technical, envUse, packaging, portalUsers, comments,
+          kickoffDate, teamTimezone, schedulingPref, engagementDescription,
+        });
       } catch (hsErr) {
         console.error('HubSpot error:', hsErr);
         errors.push(`HubSpot: ${hsErr.message}`);
