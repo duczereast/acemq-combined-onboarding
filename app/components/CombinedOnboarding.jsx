@@ -865,11 +865,23 @@ export default function CombinedOnboarding() {
                   rows={4}
                 />
 
+                {!stepList.includes('license-tech') && !stepList.includes('support-users') && submitError && (
+                  <p className="text-[#c0392b] text-[1.3rem] mt-[1rem] bg-[rgba(192,57,43,0.07)] border border-[rgba(192,57,43,0.2)] rounded-[0.8rem] px-[1.2rem] py-[0.8rem]">
+                    {submitError}
+                  </p>
+                )}
+
                 <div className="flex items-center justify-between mt-[3rem] pt-[2.2rem] border-t border-[rgba(0,0,0,0.08)]">
                   <BtnGhost onClick={goBack}>← Back</BtnGhost>
-                  <BtnOrange onClick={goNext} disabled={engagementParticipants.length === 0 || !schedulingPref}>
-                    Continue →
-                  </BtnOrange>
+                  {(stepList.includes('license-tech') || stepList.includes('support-users')) ? (
+                    <BtnOrange onClick={goNext} disabled={engagementParticipants.length === 0 || !schedulingPref}>
+                      Continue →
+                    </BtnOrange>
+                  ) : (
+                    <BtnOrange onClick={handleSubmit} disabled={submitting || engagementParticipants.length === 0 || !schedulingPref}>
+                      {submitting ? 'Submitting…' : 'Submit & Get Report →'}
+                    </BtnOrange>
+                  )}
                 </div>
               </div>
             )}
