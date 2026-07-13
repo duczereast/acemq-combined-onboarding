@@ -614,8 +614,8 @@ async function jfrog(method, path, body) {
 async function ensureJFrogGroup(groupName) {
   const { status } = await jfrog('GET', `/access/api/v2/groups/${groupName}`);
   if (status === 200) return false; // already existed
-  await jfrog('PUT', `/access/api/v2/groups/${groupName}`, {
-    group_name: groupName,
+  await jfrog('POST', '/access/api/v2/groups', {
+    name: groupName,
     description: `Customer access group — ${groupName.replace('customer-', '')}`,
     auto_join: false,
   });
@@ -645,23 +645,26 @@ async function ensureJFrogPermission(slug, groupName) {
 
 async function provisionJFrogUser(email, groupName) {
   const username = email.toLowerCase().trim();
-  const { status } = await jfrog('GET', `/access/api/v2/users/${username}`);
+  const { status, data } = await jfrog('GET', `/access/api/v2/users/${username}`);
 
   if (status === 200) {
-    // User exists — patch group membership
-    await jfrog('PATCH', `/access/api/v2/users/${username}`, { groups: [groupName] });
+    // User exists — add to group (merge with existing groups)
+    const existingGroups = data.groups || [];
+    const groups = [...new Set([...existingGroups, groupName])];
+    await jfrog('PATCH', `/access/api/v2/users/${username}`, { groups });
     return 'updated';
   } else {
-    // New user — JFrog sends invitation email automatically
+    // New user — create with a random password; user must set their own via JFrog's "forgot password"
+    const tempPwd = require('crypto').randomBytes(16).toString('hex') + 'Aa1!';
     await jfrog('POST', '/access/api/v2/users', {
       username,
       email: username,
-      password: null,
+      password: tempPwd,
       groups: [groupName],
       realm: 'internal',
       profileUpdatable: true,
       disableUIAccess: false,
-      internalPasswordDisabled: false,
+      internalPasswordDisabled: true,
     });
     return 'invited';
   }
@@ -732,8 +735,6 @@ export async function POST(request) {
         if (contactId) {
           await createEngagementNote(contactId, companyId, noteBody);
         }
-
-        await submitHubSpotForm(submitter, company, services);
       } catch (hsErr) {
         console.error('HubSpot error:', hsErr);
         errors.push(`HubSpot: ${hsErr.message}`);
