@@ -11,6 +11,11 @@ const MJ_SECRET_KEY   = process.env.MAILJET_SECRET_KEY   || 'c72154c82ee4e1577e5
 const JFROG_URL       = process.env.JFROG_URL            || 'https://acemq.jfrog.io';
 const JFROG_TOKEN     = process.env.JFROG_ACCESS_TOKEN;
 
+const JIRA_BASE_URL       = process.env.JIRA_BASE_URL        || 'https://acemq.atlassian.net';
+const JIRA_EMAIL_ADDR     = process.env.JIRA_EMAIL;
+const JIRA_API_TOKEN      = process.env.JIRA_API_TOKEN;
+const JIRA_SERVICE_DESK_ID = process.env.JIRA_SERVICE_DESK_ID || '1';
+
 const HS_BASE = 'https://api.hubapi.com';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -169,7 +174,7 @@ async function sendMailjetEmail({ toEmail, toName, subject, html, pdfBase64, pdf
   const body = {
     Messages: [
       {
-        From:        { Email: 'submissions@acemq.com', Name: 'AceMQ Onboarding' },
+        From:        { Email: 'team@acemq.com', Name: 'AceMQ Team' },
         To:          [{ Email: toEmail, Name: toName }],
         Subject:     subject,
         HTMLPart:    html,
@@ -747,6 +752,70 @@ async function provisionJFrogUser(email, groupName, company) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Jira Service Management helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function jiraAuth() {
+  return 'Basic ' + Buffer.from(`${JIRA_EMAIL_ADDR}:${JIRA_API_TOKEN}`).toString('base64');
+}
+
+async function jira(method, path, body) {
+  const res = await fetch(`${JIRA_BASE_URL}${path}`, {
+    method,
+    headers: {
+      Authorization: jiraAuth(),
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      'X-ExperimentalApi': 'opt-in',
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  const data = res.headers.get('content-type')?.includes('application/json') ? await res.json() : null;
+  return { status: res.status, data };
+}
+
+async function findJSMOrg(companyName) {
+  // Pages through all orgs on the service desk looking for a name match
+  let start = 0;
+  while (true) {
+    const { data } = await jira('GET', `/rest/servicedeskapi/servicedesk/${JIRA_SERVICE_DESK_ID}/organization?start=${start}&limit=50`);
+    const values = data?.values || [];
+    const match = values.find(o => o.name.toLowerCase() === companyName.toLowerCase());
+    if (match) return match;
+    if (data?.isLastPage || values.length === 0) return null;
+    start += values.length;
+  }
+}
+
+async function createJSMOrg(companyName) {
+  // Create org then associate it with the service desk
+  const { data: org } = await jira('POST', '/rest/servicedeskapi/organization', { name: companyName });
+  await jira('POST', `/rest/servicedeskapi/servicedesk/${JIRA_SERVICE_DESK_ID}/organization`, { organizationId: org.id });
+  return org;
+}
+
+async function addUsersToJSMOrg(orgId, emails) {
+  // JSM accepts accountIds or emails (cloud supports email-based lookup)
+  await jira('POST', `/rest/servicedeskapi/organization/${orgId}/user`, {
+    usernames: emails, // legacy field — cloud also accepts this for email lookup
+  });
+}
+
+async function provisionJSMAccess({ company, submitterEmail, portalUsers }) {
+  const emails = [...new Set([submitterEmail, ...(portalUsers || [])])].filter(Boolean);
+
+  let org = await findJSMOrg(company);
+  const orgCreated = !org;
+  if (!org) {
+    org = await createJSMOrg(company);
+  }
+
+  await addUsersToJSMOrg(org.id, emails);
+
+  return { orgId: org.id, orgName: org.name, orgCreated, usersAdded: emails };
+}
+
 async function provisionJFrogAccess({ company, submitterEmail, portalUsers }) {
   const slug      = slugifyCompany(company);
   const groupName = `customer-${slug}`;
@@ -919,6 +988,21 @@ export async function POST(request) {
         });
       } catch (notifyErr) {
         console.error('JFrog notification email error:', notifyErr);
+      }
+    }
+
+    // JSM provisioning — runs when license onboarding is selected
+    if (services.license && JIRA_API_TOKEN) {
+      try {
+        const jsmResult = await provisionJSMAccess({
+          company,
+          submitterEmail: submitter.email,
+          portalUsers: portalUsers || [],
+        });
+        console.log(`JSM: org="${jsmResult.orgName}" id=${jsmResult.orgId} created=${jsmResult.orgCreated} users=${jsmResult.usersAdded.length}`);
+      } catch (jsmErr) {
+        console.error('JSM provisioning error:', jsmErr);
+        errors.push(`JSM: ${jsmErr.message}`);
       }
     }
 
