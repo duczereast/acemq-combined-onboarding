@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useImperativeHandle, forwardRef } from 'react';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -327,11 +327,33 @@ function SupportUsersEditor({ users, setUsers }) {
 // ENGAGEMENT PARTICIPANTS EDITOR
 // ─────────────────────────────────────────────────────────────────────────────
 
-function EngagementParticipantsEditor({ participants, setParticipants }) {
+const EngagementParticipantsEditor = forwardRef(function EngagementParticipantsEditor({ participants, setParticipants }, ref) {
   const [draft, setDraft] = useState({ firstName: '', lastName: '', title: '', email: '', role: '' });
   const [error, setError] = useState('');
 
   const isEmailValid = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
+
+  // Called from parent handleSubmit to auto-add any in-progress draft.
+  // Returns the flushed participant object so the caller can merge it synchronously,
+  // since setState is async and wouldn't be visible in the same render cycle.
+  useImperativeHandle(ref, () => ({
+    tryFlushDraft: () => {
+      const email = draft.email.trim();
+      const firstName = draft.firstName.trim();
+      if (!email || !isEmailValid(email) || !firstName || !draft.role) return null;
+      if (participants.some(p => p.email.toLowerCase() === email.toLowerCase())) return null;
+      const participant = {
+        firstName,
+        lastName: draft.lastName.trim(),
+        title: draft.title.trim(),
+        email,
+        role: draft.role,
+      };
+      setParticipants(prev => [...prev, participant]);
+      setDraft({ firstName: '', lastName: '', title: '', email: '', role: '' });
+      return participant;
+    },
+  }));
 
   const addParticipant = () => {
     if (!draft.firstName.trim()) { setError('First name is required.'); return; }
@@ -405,7 +427,7 @@ function EngagementParticipantsEditor({ participants, setParticipants }) {
       )}
     </div>
   );
-}
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EMAIL TAG INPUT
@@ -535,6 +557,7 @@ export default function CombinedOnboarding() {
   const [services, setServices] = useState({ engagement: false, support: false, license: false });
 
   // ── Engagement fields ──
+  const participantsEditorRef = useRef(null);
   const [engagementParticipants, setEngagementParticipants] = useState([]);
   const [kickoffDate, setKickoffDate] = useState('');
   const [teamTimezone, setTeamTimezone] = useState('');
@@ -587,6 +610,13 @@ export default function CombinedOnboarding() {
   const submitterInfo = { firstName, lastName, email: workEmail, jobTitle, phone };
 
   const handleSubmit = async () => {
+    // Auto-flush any participant typed but not yet added — returned synchronously
+    // because setState is async and wouldn't be visible in this render cycle.
+    const flushedParticipant = participantsEditorRef.current?.tryFlushDraft() ?? null;
+    const allEngagementParticipants = flushedParticipant
+      ? [...engagementParticipants, flushedParticipant]
+      : engagementParticipants;
+
     setSubmitting(true);
     setProcessing(true);
     setSubmitError(null);
@@ -599,7 +629,7 @@ export default function CombinedOnboarding() {
           submitter: submitterInfo,
           company,
           services,
-          engagementParticipants,
+          engagementParticipants: allEngagementParticipants,
           kickoffDate,
           teamTimezone,
           schedulingPref,
@@ -827,6 +857,7 @@ export default function CombinedOnboarding() {
 
                 <p className="text-[1.4rem] font-[600] text-[#161616] mb-[1rem] mt-[1.6rem]">Engagement Participants *</p>
                 <EngagementParticipantsEditor
+                  ref={participantsEditorRef}
                   participants={engagementParticipants}
                   setParticipants={setEngagementParticipants}
                 />
