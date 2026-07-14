@@ -141,24 +141,30 @@ async function submitHubSpotForm(submitter, company, services, extra = {}) {
 
   fields.push({ name: 'services_selected', value: selectedServices });
 
+  // ── LICENSE section ──
   if (services.license && extra.technical) {
     const t = extra.technical;
     if (t.rmqProduct)    fields.push({ name: 'rmq_product',    value: t.rmqProduct });
     if (t.cpuCoreCount)  fields.push({ name: 'cpu_core_count', value: String(t.cpuCoreCount) });
     if (t.cpuCoreType)   fields.push({ name: 'cpu_core_type',  value: t.cpuCoreType });
     if (t.deploymentEnv) fields.push({ name: 'deployment_env', value: t.deploymentEnv });
-    if (extra.envUse?.length)    fields.push({ name: 'environment_use',  value: extra.envUse.join(', ') });
-    if (extra.packaging?.length) fields.push({ name: 'packaging_format', value: extra.packaging.join(', ') });
-    if (extra.portalUsers?.length) fields.push({ name: 'portal_users', value: extra.portalUsers.join(', ') });
-    if (extra.comments)  fields.push({ name: 'message', value: extra.comments });
+    if (extra.envUse?.length)      fields.push({ name: 'environment_use',  value: extra.envUse.join(', ') });
+    if (extra.packaging?.length)   fields.push({ name: 'packaging_format', value: extra.packaging.join(', ') });
+    if (extra.portalUsers?.length) fields.push({ name: 'portal_users',     value: extra.portalUsers.join(', ') });
   }
 
+  // ── ENGAGEMENT section ──
   if (services.engagement) {
-    if (extra.kickoffDate)    fields.push({ name: 'kickoff_date',   value: extra.kickoffDate });
-    if (extra.teamTimezone)   fields.push({ name: 'team_timezone',  value: extra.teamTimezone });
+    if (extra.kickoffDate)    fields.push({ name: 'kickoff_date',    value: extra.kickoffDate });
+    if (extra.teamTimezone)   fields.push({ name: 'team_timezone',   value: extra.teamTimezone });
     if (extra.schedulingPref) fields.push({ name: 'scheduling_pref', value: extra.schedulingPref });
-    if (extra.engagementDescription) fields.push({ name: 'message', value: extra.engagementDescription });
   }
+
+  // Combine free-text comments from both services into one message field (avoids duplicate field name)
+  const messageParts = [];
+  if (services.engagement && extra.engagementDescription) messageParts.push(`[Engagement]\n${extra.engagementDescription}`);
+  if (services.license && extra.comments)                 messageParts.push(`[License]\n${extra.comments}`);
+  if (messageParts.length) fields.push({ name: 'message', value: messageParts.join('\n\n') });
 
   await fetch(
     `https://api.hsforms.com/submissions/v3/integration/submit/${HS_PORTAL_ID}/${HS_FORM_GUID}`,
@@ -270,15 +276,172 @@ function buildNoteBody({ submitter, company, services,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Email HTML builder
+// Internal team email — comprehensive provisioning summary
 // ─────────────────────────────────────────────────────────────────────────────
 
-function buildEmailHtml({ submitter, company, services }) {
-  const selectedNames = [
+function buildInternalEmailHtml({
+  submitter, company, services,
+  engagementParticipants, kickoffDate, teamTimezone, schedulingPref,
+  technical, envUse, packaging, portalUsers, supportUsers,
+  fusebaseResult, fusebaseError,
+  jfrogResult, jfrogError,
+  jsmResult, jsmError,
+  pdfGenerated,
+}) {
+  const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const svcList = [
     services.engagement && '🤝 Engagement',
     services.license    && '🔑 License',
     services.support    && '🎫 Support',
-  ].filter(Boolean).join(', ');
+  ].filter(Boolean).join('&nbsp;&nbsp;·&nbsp;&nbsp;');
+
+  const ok  = (label) => `<span style="display:inline-block;background:#d4edda;color:#155724;border-radius:4px;padding:1px 8px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;">${label}</span>`;
+  const err = (label) => `<span style="display:inline-block;background:#f8d7da;color:#721c24;border-radius:4px;padding:1px 8px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;">${label}</span>`;
+  const na  = (label) => `<span style="display:inline-block;background:#e9ecef;color:#6c757d;border-radius:4px;padding:1px 8px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;">${label}</span>`;
+
+  const row = (label, value, alt) => `
+    <tr style="${alt ? 'background:#f8f8f8;' : ''}border-top:1px solid #eee;">
+      <td style="padding:8px 12px;font-size:12px;color:#999;font-weight:700;text-transform:uppercase;width:38%;white-space:nowrap;">${label}</td>
+      <td style="padding:8px 12px;font-size:13px;color:#161616;">${value}</td>
+    </tr>`;
+
+  let sections = '';
+
+  // ── ENGAGEMENT ──
+  if (services.engagement) {
+    const status = fusebaseError ? err('Error') : fusebaseResult ? ok('Provisioned') : na('Skipped');
+    const leadRow = { firstName: submitter.firstName, lastName: submitter.lastName, title: submitter.jobTitle || '', email: submitter.email, role: 'Lead Stakeholder' };
+    const allParticipants = [leadRow, ...(engagementParticipants || [])];
+    const participantRows = allParticipants.map((p, i) => `
+      <tr style="${i % 2 === 0 ? '' : 'background:#f8f8f8;'}border-top:1px solid #eee;">
+        <td style="padding:6px 10px;font-size:12px;">${p.firstName || ''} ${p.lastName || ''}</td>
+        <td style="padding:6px 10px;font-size:12px;color:#666;">${p.title || p.jobTitle || '—'}</td>
+        <td style="padding:6px 10px;font-size:12px;color:#FF6600;">${p.email}</td>
+        <td style="padding:6px 10px;font-size:12px;">${p.role || '—'}</td>
+      </tr>`).join('');
+
+    sections += `
+    <div style="margin-bottom:28px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+        <p style="margin:0;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#FF6600;">🤝 Engagement</p>
+        &nbsp;${status}
+      </div>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#fff;border:1px solid #eee;border-radius:6px;overflow:hidden;margin-bottom:10px;">
+        ${row('Portal Domain', fusebaseResult ? `<a href="https://${fusebaseResult.domain}" style="color:#FF6600;">${fusebaseResult.domain}</a>` : '—', false)}
+        ${row('Users Invited', fusebaseResult ? String(fusebaseResult.usersInvited) : '—', true)}
+        ${kickoffDate ? row('Kickoff Date', kickoffDate, false) : ''}
+        ${teamTimezone ? row('Timezone', teamTimezone, true) : ''}
+        ${schedulingPref ? row('Scheduling', schedulingPref, false) : ''}
+        ${fusebaseError ? row('Error', `<span style="color:#721c24;">${fusebaseError}</span>`, true) : ''}
+      </table>
+      <p style="margin:6px 0 4px;font-size:12px;font-weight:700;color:#161616;">Participants (${allParticipants.length})</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #eee;border-radius:6px;overflow:hidden;">
+        <tr style="background:#161616;">
+          <td style="padding:6px 10px;font-size:11px;color:#fff;font-weight:700;">Name</td>
+          <td style="padding:6px 10px;font-size:11px;color:#fff;font-weight:700;">Title</td>
+          <td style="padding:6px 10px;font-size:11px;color:#fff;font-weight:700;">Email</td>
+          <td style="padding:6px 10px;font-size:11px;color:#fff;font-weight:700;">Role</td>
+        </tr>
+        ${participantRows}
+      </table>
+    </div>`;
+  }
+
+  // ── LICENSE ──
+  if (services.license) {
+    const jfrogStatus = jfrogError ? err('Error') : jfrogResult ? ok('Provisioned') : na('Skipped');
+    const jsmStatus   = jsmError   ? err('Error') : jsmResult   ? ok('Provisioned') : na('Skipped');
+
+    const allJFrogUsers = [...(jfrogResult?.invited || []), ...(jfrogResult?.updated || [])];
+    const jfrogUserRows = allJFrogUsers.map((e, i) => `
+      <tr style="${i % 2 === 0 ? '' : 'background:#f8f8f8;'}border-top:1px solid #eee;">
+        <td style="padding:6px 10px;font-size:12px;color:#FF6600;">${e}</td>
+        <td style="padding:6px 10px;font-size:11px;color:#666;">${jfrogResult?.invited?.includes(e) ? '(invited — new account)' : '(added to group)'}</td>
+      </tr>`).join('');
+    const jfrogFailRows = (jfrogResult?.failed || []).map(f => `
+      <tr style="border-top:1px solid #eee;background:#fff5f5;">
+        <td colspan="2" style="padding:6px 10px;font-size:12px;color:#721c24;">${f}</td>
+      </tr>`).join('');
+
+    sections += `
+    <div style="margin-bottom:28px;">
+      <p style="margin:0 0 12px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#FF6600;">🔑 License</p>
+
+      <!-- JFrog -->
+      <div style="margin-bottom:12px;">
+        <p style="margin:0 0 6px;font-size:12px;font-weight:700;color:#161616;">JFrog Artifactory &nbsp;${jfrogStatus}</p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#fff;border:1px solid #eee;border-radius:6px;overflow:hidden;margin-bottom:6px;">
+          ${row('Group', jfrogResult?.groupName || '—', false)}
+          ${row('Permission Target', jfrogResult?.permName || '—', true)}
+          ${row('Group Created', jfrogResult ? (jfrogResult.groupCreated ? 'Yes (new)' : 'No (existing)') : '—', false)}
+          ${row('Perm Created', jfrogResult ? (jfrogResult.permCreated ? 'Yes (new)' : 'No (existing)') : '—', true)}
+          ${jfrogError ? row('Error', `<span style="color:#721c24;">${jfrogError}</span>`, false) : ''}
+        </table>
+        ${allJFrogUsers.length > 0 ? `
+        <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #eee;border-radius:6px;overflow:hidden;">
+          <tr style="background:#161616;">
+            <td style="padding:6px 10px;font-size:11px;color:#fff;font-weight:700;">Email</td>
+            <td style="padding:6px 10px;font-size:11px;color:#fff;font-weight:700;">Status</td>
+          </tr>
+          ${jfrogUserRows}
+          ${jfrogFailRows}
+        </table>` : ''}
+      </div>
+
+      <!-- Technical details -->
+      <p style="margin:0 0 6px;font-size:12px;font-weight:700;color:#161616;">Technical Configuration</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#fff;border:1px solid #eee;border-radius:6px;overflow:hidden;margin-bottom:10px;">
+        ${technical?.rmqProduct    ? row('RabbitMQ Product', technical.rmqProduct, false) : ''}
+        ${technical?.cpuCoreCount  ? row('CPU Cores', `${technical.cpuCoreCount} ${technical.cpuCoreType || ''}`.trim(), true) : ''}
+        ${technical?.deploymentEnv ? row('Deployment', technical.deploymentEnv, false) : ''}
+        ${envUse?.length           ? row('Environment Use', envUse.join(', '), true) : ''}
+        ${packaging?.length        ? row('Packaging', packaging.join(', '), false) : ''}
+      </table>
+
+      <!-- JSM -->
+      <p style="margin:0 0 6px;font-size:12px;font-weight:700;color:#161616;">Jira Service Management &nbsp;${jsmStatus}</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#fff;border:1px solid #eee;border-radius:6px;overflow:hidden;">
+        ${row('Org Name', jsmResult?.orgName || '—', false)}
+        ${row('Org ID', jsmResult?.orgId || '—', true)}
+        ${row('Org Created', jsmResult ? (jsmResult.orgCreated ? 'Yes (new)' : 'No (existing)') : '—', false)}
+        ${row('Users Added', jsmResult ? String(jsmResult.usersAdded?.length || 0) : '—', true)}
+        ${jsmError ? row('Error', `<span style="color:#721c24;">${jsmError}</span>`, false) : ''}
+      </table>
+    </div>`;
+  }
+
+  // ── SUPPORT ──
+  if (services.support) {
+    const jsmStatus = jsmError ? err('Error') : jsmResult ? ok('Provisioned') : na('Skipped');
+    const supportUserRows = (supportUsers || []).map((u, i) => `
+      <tr style="${i % 2 === 0 ? '' : 'background:#f8f8f8;'}border-top:1px solid #eee;">
+        <td style="padding:6px 10px;font-size:12px;">${u.firstName || ''} ${u.lastName || ''}</td>
+        <td style="padding:6px 10px;font-size:12px;color:#FF6600;">${u.email}</td>
+      </tr>`).join('');
+
+    sections += `
+    <div style="margin-bottom:28px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+        <p style="margin:0;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#FF6600;">🎫 Support</p>
+        &nbsp;${jsmStatus}
+      </div>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#fff;border:1px solid #eee;border-radius:6px;overflow:hidden;margin-bottom:10px;">
+        ${row('Org Name', jsmResult?.orgName || '—', false)}
+        ${row('Users Added', jsmResult ? String(jsmResult.usersAdded?.length || 0) : '—', true)}
+        ${jsmError ? row('Error', `<span style="color:#721c24;">${jsmError}</span>`, false) : ''}
+      </table>
+      ${supportUsers?.length > 0 ? `
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #eee;border-radius:6px;overflow:hidden;">
+        <tr style="background:#161616;">
+          <td style="padding:6px 10px;font-size:11px;color:#fff;font-weight:700;">Name</td>
+          <td style="padding:6px 10px;font-size:11px;color:#fff;font-weight:700;">Email</td>
+        </tr>
+        ${supportUserRows}
+      </table>` : ''}
+    </div>`;
+  }
+
+  const hasErrors = fusebaseError || jfrogError || jsmError;
 
   return `
 <!DOCTYPE html>
@@ -287,45 +450,32 @@ function buildEmailHtml({ submitter, company, services }) {
 <body style="margin:0;padding:0;background:#f9f9f9;font-family:Helvetica,Arial,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9f9f9;">
     <tr><td align="center" style="padding:40px 20px;">
-      <table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 20px rgba(0,0,0,0.08);">
-        <tr><td style="background:#000;padding:28px 40px;">
+      <table width="640" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 20px rgba(0,0,0,0.08);">
+        <tr><td style="background:#000;padding:24px 36px;">
           <p style="margin:0;color:#8FD5CC;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;">THE #1 RABBITMQ PARTNER</p>
-          <p style="margin:6px 0 0;color:#fff;font-size:24px;font-weight:700;">AceMQ</p>
+          <p style="margin:6px 0 0;color:#fff;font-size:22px;font-weight:700;">AceMQ — Internal Onboarding Report</p>
         </td></tr>
-        <tr><td style="background:#FF6600;height:4px;"></td></tr>
-        <tr><td style="padding:40px;">
-          <p style="margin:0 0 8px;color:#FF6600;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;">New Onboarding Submission</p>
-          <h1 style="margin:0 0 24px;color:#161616;font-size:28px;font-weight:700;">AceMQ Onboarding</h1>
-          <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8f8f8;border-radius:8px;margin-bottom:24px;">
-            <tr><td style="padding:20px;">
-              <table width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="padding:8px 0;color:#999;font-size:12px;font-weight:700;text-transform:uppercase;width:40%;">Company</td>
-                  <td style="padding:8px 0;color:#161616;font-size:14px;">${company}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0;color:#999;font-size:12px;font-weight:700;text-transform:uppercase;">Submitted by</td>
-                  <td style="padding:8px 0;color:#161616;font-size:14px;">${submitter.firstName} ${submitter.lastName}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0;color:#999;font-size:12px;font-weight:700;text-transform:uppercase;">Email</td>
-                  <td style="padding:8px 0;color:#FF6600;font-size:14px;">${submitter.email}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0;color:#999;font-size:12px;font-weight:700;text-transform:uppercase;">Onboarding</td>
-                  <td style="padding:8px 0;color:#161616;font-size:14px;">${selectedNames}</td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 0;color:#999;font-size:12px;font-weight:700;text-transform:uppercase;">Date</td>
-                  <td style="padding:8px 0;color:#161616;font-size:14px;">${new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' })}</td>
-                </tr>
-              </table>
-            </td></tr>
+        <tr><td style="background:${hasErrors ? '#c0392b' : '#FF6600'};height:4px;"></td></tr>
+        <tr><td style="padding:32px 36px;">
+          <p style="margin:0 0 6px;color:#FF6600;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;">New Submission — ${date}</p>
+          <h1 style="margin:0 0 20px;color:#161616;font-size:24px;font-weight:700;">${company}</h1>
+
+          <!-- Summary -->
+          <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#f8f8f8;border-radius:8px;overflow:hidden;margin-bottom:28px;">
+            ${row('Submitter', `${submitter.firstName} ${submitter.lastName} &lt;${submitter.email}&gt;`, false)}
+            ${submitter.jobTitle ? row('Title', submitter.jobTitle, true) : ''}
+            ${submitter.phone    ? row('Phone', submitter.phone, false) : ''}
+            ${row('Services', svcList, submitter.phone ? false : true)}
+            ${row('Report PDF', pdfGenerated ? ok('Attached') : err('Failed'), false)}
+            ${hasErrors ? row('Overall Status', err('Errors — review below'), true) : row('Overall Status', ok('All systems provisioned'), true)}
           </table>
-          <p style="color:#666;font-size:14px;line-height:1.6;">The complete onboarding report is attached as a PDF. Please review and follow up with the customer within 1 business day.</p>
+
+          <!-- Per-service sections -->
+          ${sections}
+
         </td></tr>
-        <tr><td style="background:#000;padding:20px 40px;text-align:center;">
-          <p style="margin:0;color:#666;font-size:11px;">© ${new Date().getFullYear()} AceMQ, an Ace8 Company · onboarding@acemq.com · acemq.com</p>
+        <tr><td style="background:#000;padding:16px 36px;text-align:center;">
+          <p style="margin:0;color:#666;font-size:11px;">© ${new Date().getFullYear()} AceMQ, an Ace8 Company · Sent automatically by onboarding.acemq.com</p>
         </td></tr>
       </table>
     </td></tr>
@@ -1207,42 +1357,16 @@ export async function POST(request) {
 
     const reportFilename = `AceMQ-Onboarding-${company.replace(/\s+/g, '-')}.pdf`;
 
-    // Mailjet — send to onboarding@acemq.com (internal team)
-    try {
-      const selectedServices = [
-        services.engagement && 'Engagement',
-        services.license    && 'License',
-        services.support    && 'Support',
-      ].filter(Boolean).join(' + ');
-
-      await sendMailjetEmail({
-        toEmail:     'onboarding@acemq.com',
-        toName:      'AceMQ Onboarding Team',
-        subject:     `New Onboarding — ${company} (${selectedServices})`,
-        html:        buildEmailHtml({ submitter, company, services }),
-        pdfBase64,
-        pdfFilename: reportFilename,
-      });
-    } catch (mjErr) {
-      console.error('Mailjet error:', mjErr);
-      errors.push(`Mailjet: ${mjErr.message}`);
-    }
-
-    // Mailjet — send confirmation to lead stakeholder (customer)
+    // ── Customer confirmation email (send early — doesn't depend on provisioning results) ──
     try {
       const customerAtts = [];
-      if (pdfBase64) {
-        customerAtts.push({ base64: pdfBase64, filename: reportFilename });
-      }
-      // Attach JFrog guide if license was selected
+      if (pdfBase64) customerAtts.push({ base64: pdfBase64, filename: reportFilename });
       if (services.license) {
         try {
           const guidePath = path.join(process.cwd(), 'public', 'AceMQ-JFrog-RabbitMQ-Pull-Guide.pdf');
-          const guideBase64 = fs.readFileSync(guidePath).toString('base64');
-          customerAtts.push({ base64: guideBase64, filename: 'AceMQ-JFrog-RabbitMQ-Pull-Guide.pdf' });
+          customerAtts.push({ base64: fs.readFileSync(guidePath).toString('base64'), filename: 'AceMQ-JFrog-RabbitMQ-Pull-Guide.pdf' });
         } catch (_) {}
       }
-
       const submitterName = `${submitter.firstName} ${submitter.lastName}`.trim();
       await sendMailjetEmail({
         toEmail:     submitter.email,
@@ -1260,11 +1384,31 @@ export async function POST(request) {
       errors.push(`CustomerEmail: ${custMjErr.message}`);
     }
 
-    // JFrog provisioning — runs when license onboarding is selected
-    if (services.license && JFROG_TOKEN) {
-      let jfrogResult = null;
-      let jfrogError  = null;
+    // ── Provisioning — collect all results before sending internal email ──
 
+    let fusebaseResult = null, fusebaseError = null;
+    let jfrogResult    = null, jfrogError    = null;
+    let jsmResult      = null, jsmError      = null;
+
+    // FuseBase — engagement portal
+    if (services.engagement && FUSEBASE_TOKEN) {
+      try {
+        fusebaseResult = await provisionFuseBasePortal({
+          company,
+          engagementParticipants: engagementParticipants || [],
+          submitterEmail: submitter.email,
+          submitterName: `${submitter.firstName} ${submitter.lastName}`.trim(),
+        });
+        console.log(`FuseBase: portal=${fusebaseResult.domain} portalId=${fusebaseResult.portalId} users=${fusebaseResult.usersInvited}`);
+      } catch (fbErr) {
+        console.error('FuseBase portal provisioning error:', fbErr);
+        fusebaseError = fbErr.message;
+        errors.push(`FuseBase: ${fbErr.message}`);
+      }
+    }
+
+    // JFrog — license artifact access
+    if (services.license && JFROG_TOKEN) {
       try {
         jfrogResult = await provisionJFrogAccess({
           company,
@@ -1273,61 +1417,17 @@ export async function POST(request) {
         });
         jfrogResult.failed.forEach(f => errors.push(`JFrog: ${f}`));
         console.log(`JFrog: group=${jfrogResult.groupName} invited=${jfrogResult.invited.length} updated=${jfrogResult.updated.length} failed=${jfrogResult.failed.length}`);
-      } catch (err) {
-        console.error('JFrog provisioning error:', err);
-        jfrogError = err.message;
-        errors.push(`JFrog: ${err.message}`);
-      }
-
-      // Mailjet notification to onboarding team
-      try {
-        const success = !jfrogError && jfrogResult?.failed.length === 0;
-        const subject = success
-          ? `✅ JFrog Provisioned — ${company}`
-          : `⚠️ JFrog Provisioning Issue — ${company}`;
-
-        const allUsers = [...(jfrogResult?.invited || []), ...(jfrogResult?.updated || [])];
-        const html = `
-<!DOCTYPE html><html><body style="font-family:Helvetica,Arial,sans-serif;background:#f9f9f9;margin:0;padding:20px;">
-<table width="600" style="background:#fff;border-radius:8px;padding:32px;margin:auto;">
-  <tr><td>
-    <p style="margin:0 0 4px;color:#FF6600;font-size:11px;letter-spacing:.1em;text-transform:uppercase;">JFrog Access Provisioning</p>
-    <h2 style="margin:0 0 20px;color:#161616;">${success ? '✅ Provisioning Complete' : '⚠️ Provisioning Had Errors'}</h2>
-    <table width="100%" style="border-collapse:collapse;margin-bottom:20px;">
-      <tr style="background:#f0f0f0;"><td style="padding:8px 12px;font-size:12px;color:#666;width:40%;">Company</td><td style="padding:8px 12px;font-size:13px;font-weight:bold;">${company}</td></tr>
-      <tr><td style="padding:8px 12px;font-size:12px;color:#666;">Submitter</td><td style="padding:8px 12px;font-size:13px;">${submitter.firstName} ${submitter.lastName} &lt;${submitter.email}&gt;</td></tr>
-      <tr style="background:#f0f0f0;"><td style="padding:8px 12px;font-size:12px;color:#666;">JFrog Group</td><td style="padding:8px 12px;font-size:13px;font-family:monospace;">${jfrogResult?.groupName || '—'}</td></tr>
-      <tr><td style="padding:8px 12px;font-size:12px;color:#666;">Permission Target</td><td style="padding:8px 12px;font-size:13px;font-family:monospace;">${jfrogResult?.permName || '—'}</td></tr>
-      <tr style="background:#f0f0f0;"><td style="padding:8px 12px;font-size:12px;color:#666;">Group Created</td><td style="padding:8px 12px;font-size:13px;">${jfrogResult?.groupCreated ? 'Yes (new)' : 'No (existing)'}</td></tr>
-      <tr><td style="padding:8px 12px;font-size:12px;color:#666;">Perm Target Created</td><td style="padding:8px 12px;font-size:13px;">${jfrogResult?.permCreated ? 'Yes (new)' : 'No (existing)'}</td></tr>
-    </table>
-    ${allUsers.length > 0 ? `
-    <p style="font-weight:bold;margin:16px 0 8px;">Users Provisioned (${allUsers.length})</p>
-    <ul style="margin:0;padding-left:20px;">${allUsers.map(e => `<li style="font-size:13px;padding:2px 0;">${e}${jfrogResult?.invited?.includes(e) ? ' <span style="color:#FF6600;font-size:11px;">(invited)</span>' : ' <span style="color:#666;font-size:11px;">(added to group)</span>'}</li>`).join('')}</ul>` : ''}
-    ${jfrogResult?.failed?.length > 0 ? `
-    <p style="font-weight:bold;margin:16px 0 8px;color:#c0392b;">Failed (${jfrogResult.failed.length})</p>
-    <ul style="margin:0;padding-left:20px;">${jfrogResult.failed.map(f => `<li style="font-size:13px;color:#c0392b;padding:2px 0;">${f}</li>`).join('')}</ul>` : ''}
-    ${jfrogError ? `<p style="color:#c0392b;margin-top:16px;font-size:13px;"><strong>Error:</strong> ${jfrogError}</p>` : ''}
-    <p style="margin-top:24px;font-size:12px;color:#999;">Sent automatically by AceMQ Onboarding · onboarding.acemq.com</p>
-  </td></tr>
-</table>
-</body></html>`;
-
-        await sendMailjetEmail({
-          toEmail: 'onboarding@acemq.com',
-          toName:  'AceMQ Onboarding Team',
-          subject,
-          html,
-        });
-      } catch (notifyErr) {
-        console.error('JFrog notification email error:', notifyErr);
+      } catch (jfErr) {
+        console.error('JFrog provisioning error:', jfErr);
+        jfrogError = jfErr.message;
+        errors.push(`JFrog: ${jfErr.message}`);
       }
     }
 
-    // JSM provisioning — runs when license onboarding is selected
-    if (services.license && JIRA_API_TOKEN) {
+    // JSM — support + license portal access
+    if ((services.license || services.support) && JIRA_API_TOKEN) {
       try {
-        const jsmResult = await provisionJSMAccess({
+        jsmResult = await provisionJSMAccess({
           company,
           submitterEmail: submitter.email,
           portalUsers: portalUsers || [],
@@ -1335,24 +1435,38 @@ export async function POST(request) {
         console.log(`JSM: org="${jsmResult.orgName}" id=${jsmResult.orgId} created=${jsmResult.orgCreated} users=${jsmResult.usersAdded.length}`);
       } catch (jsmErr) {
         console.error('JSM provisioning error:', jsmErr);
+        jsmError = jsmErr.message;
         errors.push(`JSM: ${jsmErr.message}`);
       }
     }
 
-    // FuseBase portal provisioning — runs when engagement onboarding is selected
-    if (services.engagement && FUSEBASE_TOKEN) {
-      try {
-        const fbResult = await provisionFuseBasePortal({
-          company,
-          engagementParticipants: engagementParticipants || [],
-          submitterEmail: submitter.email,
-          submitterName: `${submitter.firstName} ${submitter.lastName}`.trim(),
-        });
-        console.log(`FuseBase: portal=${fbResult.domain} portalId=${fbResult.portalId} users=${fbResult.usersInvited}`);
-      } catch (fbErr) {
-        console.error('FuseBase portal provisioning error:', fbErr);
-        errors.push(`FuseBase: ${fbErr.message}`);
-      }
+    // ── Internal team email — one comprehensive email with all results ──
+    try {
+      const selectedServices = [
+        services.engagement && 'Engagement',
+        services.license    && 'License',
+        services.support    && 'Support',
+      ].filter(Boolean).join(' + ');
+
+      await sendMailjetEmail({
+        toEmail:     'onboarding@acemq.com',
+        toName:      'AceMQ Onboarding Team',
+        subject:     `New Onboarding — ${company} (${selectedServices})`,
+        html:        buildInternalEmailHtml({
+          submitter, company, services,
+          engagementParticipants, kickoffDate, teamTimezone, schedulingPref,
+          technical, envUse, packaging, portalUsers, supportUsers,
+          fusebaseResult, fusebaseError,
+          jfrogResult, jfrogError,
+          jsmResult, jsmError,
+          pdfGenerated: !!pdfBase64,
+        }),
+        pdfBase64,
+        pdfFilename: reportFilename,
+      });
+    } catch (mjErr) {
+      console.error('Internal email error:', mjErr);
+      errors.push(`InternalEmail: ${mjErr.message}`);
     }
 
     return NextResponse.json({
