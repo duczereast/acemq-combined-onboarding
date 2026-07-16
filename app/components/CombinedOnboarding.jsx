@@ -433,11 +433,23 @@ const EngagementParticipantsEditor = forwardRef(function EngagementParticipantsE
 // EMAIL TAG INPUT
 // ─────────────────────────────────────────────────────────────────────────────
 
-function EmailTagInput({ emails, setEmails }) {
+const EmailTagInput = forwardRef(function EmailTagInput({ emails, setEmails }, ref) {
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
 
   const isValid = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
+
+  // Called from parent handleSubmit to auto-confirm any email typed but not yet added,
+  // matching the same pattern as EngagementParticipantsEditor.tryFlushDraft().
+  useImperativeHandle(ref, () => ({
+    tryFlushInput: () => {
+      const val = input.trim();
+      if (!val || !isValid(val) || emails.includes(val)) return null;
+      setEmails(prev => [...prev, val]);
+      setInput('');
+      return val;
+    },
+  }));
 
   const addEmail = () => {
     const val = input.trim();
@@ -477,7 +489,7 @@ function EmailTagInput({ emails, setEmails }) {
       <p className="text-[#bbbbbb] text-[1.2rem]">Press Enter or comma to add each address.</p>
     </div>
   );
-}
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FOOTER (PDF is generated server-side — see app/api/submit/route.js)
@@ -558,6 +570,7 @@ export default function CombinedOnboarding() {
 
   // ── Engagement fields ──
   const participantsEditorRef = useRef(null);
+  const portalEmailsRef = useRef(null);
   const [engagementParticipants, setEngagementParticipants] = useState([]);
   const [kickoffDate, setKickoffDate] = useState('');
   const [teamTimezone, setTeamTimezone] = useState('');
@@ -617,6 +630,10 @@ export default function CombinedOnboarding() {
       ? [...engagementParticipants, flushedParticipant]
       : engagementParticipants;
 
+    // Auto-flush any portal email typed but not yet confirmed (same pattern as above).
+    const flushedEmail = portalEmailsRef.current?.tryFlushInput() ?? null;
+    const allPortalEmails = flushedEmail ? [...portalEmails, flushedEmail] : portalEmails;
+
     setSubmitting(true);
     setProcessing(true);
     setSubmitError(null);
@@ -639,7 +656,7 @@ export default function CombinedOnboarding() {
           envUse,
           packaging,
           comments,
-          portalUsers: portalEmails,
+          portalUsers: allPortalEmails,
           supportUsers,
         }),
       });
@@ -1032,7 +1049,7 @@ export default function CombinedOnboarding() {
                   </div>
                 </div>
 
-                <EmailTagInput emails={portalEmails} setEmails={setPortalEmails} />
+                <EmailTagInput ref={portalEmailsRef} emails={portalEmails} setEmails={setPortalEmails} />
 
                 {!stepList.includes('support-users') && submitError && (
                   <p className="text-[#c0392b] text-[1.3rem] mt-[1rem] bg-[rgba(192,57,43,0.07)] border border-[rgba(192,57,43,0.2)] rounded-[0.8rem] px-[1.2rem] py-[0.8rem]">

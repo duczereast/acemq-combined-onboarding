@@ -1005,6 +1005,16 @@ async function ensureJFrogPermission(slug, groupName) {
 }
 
 async function sendJFrogInviteEmail(email, tempPwd, company) {
+  // tempPwd is null for existing JFrog users — they get access notification without credentials.
+  const credRows = tempPwd ? `
+          <tr style="border-top:1px solid #eee;">
+            <td style="padding:12px 16px;font-size:13px;color:#666;">Temp Password</td>
+            <td style="padding:12px 16px;font-size:14px;font-family:monospace;letter-spacing:1px;">${tempPwd}</td>
+          </tr>` : '';
+  const postLoginNote = tempPwd
+    ? `<p style="margin:20px 0 0;font-size:13px;color:#888;line-height:1.5;">You will be prompted to change your password after your first login.</p>`
+    : `<p style="margin:20px 0 0;font-size:13px;color:#888;line-height:1.5;">Log in with your existing AceMQ Artifactory credentials. The pull guide attached to this email has step-by-step instructions.</p>`;
+
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#333;">
       <div style="background:#FF6B00;padding:24px 32px;">
@@ -1026,17 +1036,12 @@ async function sendJFrogInviteEmail(email, tempPwd, company) {
             <td style="padding:12px 16px;font-size:13px;color:#666;">Username</td>
             <td style="padding:12px 16px;font-size:14px;font-family:monospace;">${email}</td>
           </tr>
-          <tr style="border-top:1px solid #eee;">
-            <td style="padding:12px 16px;font-size:13px;color:#666;">Temp Password</td>
-            <td style="padding:12px 16px;font-size:14px;font-family:monospace;letter-spacing:1px;">${tempPwd}</td>
-          </tr>
+          ${credRows}
         </table>
         <a href="https://acemq.jfrog.io" style="display:inline-block;background:#FF6B00;color:#fff;text-decoration:none;padding:12px 28px;border-radius:4px;font-weight:700;font-size:15px;">
           Log In to AceMQ Artifactory →
         </a>
-        <p style="margin:20px 0 0;font-size:13px;color:#888;line-height:1.5;">
-          You will be prompted to change your password after your first login.
-        </p>
+        ${postLoginNote}
         <hr style="margin:32px 0;border:none;border-top:1px solid #eee;">
         <p style="margin:0;font-size:13px;color:#888;">
           AceMQ · an ace8 company<br>
@@ -1069,10 +1074,15 @@ async function provisionJFrogUser(email, groupName, company) {
     // User exists — add to group (merge with existing groups)
     const existingGroups = data.groups || [];
     const groups = [...new Set([...existingGroups, groupName])];
-    await jfrog('PATCH', `/access/api/v2/users/${username}`, { groups });
+    const patchRes = await jfrog('PATCH', `/access/api/v2/users/${username}`, { groups });
+    if (patchRes.status >= 400) {
+      throw new Error(`PATCH failed (${patchRes.status}): ${JSON.stringify(patchRes.data)}`);
+    }
+    // Existing users still need the access email + pull guide — they're getting new repo access
+    await sendJFrogInviteEmail(username, null, company);
     return 'updated';
   } else {
-    // New user — create with a temporary password and send it via email
+    // New user — create with a temporary password and send credentials via email
     const tempPwd = require('crypto').randomBytes(10).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) + 'Aa1!';
     await jfrog('POST', '/access/api/v2/users', {
       username,
