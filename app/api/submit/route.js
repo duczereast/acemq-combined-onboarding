@@ -1141,7 +1141,7 @@ async function createJSMOrg(companyName) {
   return org;
 }
 
-async function resolveJSMAccountId(email) {
+async function resolveJSMAccountId(email, fullName) {
   // Search for existing Atlassian account
   const { data } = await jira('GET', `/rest/api/3/user/search?query=${encodeURIComponent(email)}&maxResults=1`);
   if (Array.isArray(data) && data.length > 0) return data[0].accountId;
@@ -1149,19 +1149,36 @@ async function resolveJSMAccountId(email) {
   // Not found — create as a JSM portal customer (triggers Atlassian invite email)
   const { data: customer } = await jira('POST', '/rest/servicedeskapi/customer', {
     email,
-    fullName: email.split('@')[0],
+    fullName: fullName || email,
   });
   return customer?.accountId || null;
 }
 
-async function addUsersToJSMOrg(orgId, emails) {
-  const accountIds = (await Promise.all(emails.map(resolveJSMAccountId))).filter(Boolean);
+async function addUsersToJSMOrg(orgId, users) {
+  // users: array of { email, fullName } or plain email strings
+  const normalized = users.map(u => typeof u === 'string' ? { email: u, fullName: u } : u);
+  const accountIds = (await Promise.all(normalized.map(u => resolveJSMAccountId(u.email, u.fullName)))).filter(Boolean);
   if (accountIds.length === 0) return;
   await jira('POST', `/rest/servicedeskapi/organization/${orgId}/user`, { accountIds });
 }
 
-async function provisionJSMAccess({ company, submitterEmail, portalUsers }) {
-  const emails = [...new Set([submitterEmail, ...(portalUsers || [])])].filter(Boolean);
+async function provisionJSMAccess({ company, submitterEmail, portalUsers, supportUsers }) {
+  // Combine portal users (from license section) and support users (from support section),
+  // deduplicating by email so no one is added twice.
+  const seen = new Set();
+  const users = [];
+  const add = (email, fullName) => {
+    const e = (email || '').toLowerCase().trim();
+    if (!e || seen.has(e)) return;
+    seen.add(e);
+    users.push({ email: e, fullName: fullName || e });
+  };
+
+  add(submitterEmail);
+  (portalUsers || []).forEach(e => add(e));
+  (supportUsers || []).forEach(u => add(u.email, `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email));
+
+  const emails = users.map(u => u.email);
 
   let org = await findJSMOrg(company);
   const orgCreated = !org;
@@ -1169,7 +1186,7 @@ async function provisionJSMAccess({ company, submitterEmail, portalUsers }) {
     org = await createJSMOrg(company);
   }
 
-  await addUsersToJSMOrg(org.id, emails);
+  await addUsersToJSMOrg(org.id, users);
 
   return { orgId: org.id, orgName: org.name, orgCreated, usersAdded: emails };
 }
@@ -1441,6 +1458,7 @@ export async function POST(request) {
           company,
           submitterEmail: submitter.email,
           portalUsers: portalUsers || [],
+          supportUsers: supportUsers || [],
         });
         console.log(`JSM: org="${jsmResult.orgName}" id=${jsmResult.orgId} created=${jsmResult.orgCreated} users=${jsmResult.usersAdded.length}`);
       } catch (jsmErr) {
