@@ -652,6 +652,19 @@ function buildCustomerEmailHtml({ submitter, company, services, engagementPartic
 // PDF report — pdf-lib, matches AceMQ Standard Doc Format (same as Redis tool)
 // ─────────────────────────────────────────────────────────────────────────────
 
+function toWinAnsi(str) {
+  return String(str ?? '')
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^\x00-\xFF]/g, '?');
+}
+
+function patchDrawText(page) {
+  const orig = page.drawText.bind(page);
+  page.drawText = (text, opts) => orig(toWinAnsi(text), opts);
+  return page;
+}
+
 async function buildReportPdf({
   submitter, company, services,
   engagementParticipants, kickoffDate, teamTimezone, schedulingPref, timeSlotPref, engagementDescription,
@@ -682,7 +695,7 @@ async function buildReportPdf({
     services.support    && 'Support',
   ].filter(Boolean);
 
-  let page = doc.addPage([W, H]);
+  let page = patchDrawText(doc.addPage([W, H]));
   let y = H - 56;
 
   function wrapLines(text, font, size, maxW) {
@@ -700,7 +713,7 @@ async function buildReportPdf({
 
   function ensureSpace(needed) {
     if (y - needed < 56) {
-      page = doc.addPage([W, H]);
+      page = patchDrawText(doc.addPage([W, H]));
       y = H - 56;
       drawFooter(page);
     }
