@@ -22,6 +22,13 @@ const FUSEBASE_TOKEN             = process.env.FUSEBASE_API_TOKEN;
 const FUSEBASE_ORG_ID            = process.env.FUSEBASE_ORG_ID            || 'u25yx9';
 const FUSEBASE_MASTER_PORTAL_ID  = process.env.FUSEBASE_MASTER_PORTAL_ID  || 'jiiin9o066qk6uh194n3icwl';
 const FUSEBASE_MCP_URL           = 'https://gate-mcp.thefusebase.com/mcp';
+
+const CLICKUP_TOKEN = process.env.CLICKUP_API_TOKEN;
+const CLICKUP_LISTS = {
+  engagement: process.env.CLICKUP_LIST_ENGAGEMENT || '901417509173', // AceMQ Engagement Pipeline
+  license:    process.env.CLICKUP_LIST_LICENSE    || '901417984298', // AceMQ License Onboarding
+  support:    process.env.CLICKUP_LIST_SUPPORT    || '901417984379', // AceMQ Support Onboarding
+};
 const HS_BASE = 'https://api.hubapi.com';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1097,7 +1104,7 @@ async function provisionJFrogUser(email, groupName, company) {
   } else {
     // New user — create with a temporary password and send credentials via email
     const tempPwd = require('crypto').randomBytes(10).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) + 'Aa1!';
-    await jfrog('POST', '/access/api/v2/users', {
+    const createRes = await jfrog('POST', '/access/api/v2/users', {
       username,
       email: username,
       password: tempPwd,
@@ -1106,6 +1113,9 @@ async function provisionJFrogUser(email, groupName, company) {
       profileUpdatable: true,
       disableUIAccess: false,
     });
+    if (createRes.status >= 400) {
+      throw new Error(`Create user failed (${createRes.status}): ${JSON.stringify(createRes.data)}`);
+    }
     await sendJFrogInviteEmail(username, tempPwd, company);
     return 'invited';
   }
@@ -1329,6 +1339,43 @@ async function provisionJFrogAccess({ company, submitterEmail, portalUsers }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ClickUp — onboarding pipeline tasks
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function clickup(method, endpoint, body) {
+  const res = await fetch(`https://api.clickup.com/api/v2${endpoint}`, {
+    method,
+    headers: { Authorization: CLICKUP_TOKEN, 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status >= 400) throw new Error(`ClickUp ${method} ${endpoint} failed (${res.status}): ${JSON.stringify(data)}`);
+  return data;
+}
+
+// Finds the task named after `company` in the list (any status, case-insensitive) and
+// moves it to "onboarding"; creates it in "onboarding" if no matching task exists yet.
+async function upsertOnboardingTask(listId, company) {
+  const { tasks = [] } = await clickup('GET', `/list/${listId}/task?include_closed=true&subtasks=true`);
+  const match = tasks.find(t => t.name.trim().toLowerCase() === company.trim().toLowerCase());
+  if (match) {
+    await clickup('PUT', `/task/${match.id}`, { status: 'onboarding' });
+    return { action: 'moved', taskId: match.id };
+  }
+  const created = await clickup('POST', `/list/${listId}/task`, { name: company, status: 'onboarding' });
+  return { action: 'created', taskId: created.id };
+}
+
+async function syncClickUpPipelines({ company, services }) {
+  const results = {};
+  const selected = Object.entries(CLICKUP_LISTS).filter(([key]) => services[key]);
+  for (const [key, listId] of selected) {
+    results[key] = await upsertOnboardingTask(listId, company);
+  }
+  return results;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST handler
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1429,6 +1476,19 @@ export async function POST(request) {
     let fusebaseResult = null, fusebaseError = null;
     let jfrogResult    = null, jfrogError    = null;
     let jsmResult      = null, jsmError      = null;
+    let clickupResult  = null, clickupError  = null;
+
+    // ClickUp — move/create the onboarding pipeline task for each selected service
+    if (CLICKUP_TOKEN) {
+      try {
+        clickupResult = await syncClickUpPipelines({ company, services });
+        console.log('ClickUp:', clickupResult);
+      } catch (cuErr) {
+        console.error('ClickUp sync error:', cuErr);
+        clickupError = cuErr.message;
+        errors.push(`ClickUp: ${cuErr.message}`);
+      }
+    }
 
     // FuseBase — engagement portal
     if (services.engagement && FUSEBASE_TOKEN) {
